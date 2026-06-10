@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-fullscreen">
+<title>Tanks Amaze — Capture the Flag</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="game">
+  <canvas id="canvas"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="topbar">
+      <div class="hud-block" id="health-block">
+        <span class="hud-label">ARMOR</span>
+        <div id="healthwrap"><div id="healthbar"></div></div>
+      </div>
+      <div class="hud-block" id="score-block">
+        <span id="score"><b class="you">0</b> — <b class="foe">0</b></span>
+        <span id="levelname">Level 1 · City</span>
+      </div>
+      <div class="hud-block" id="flag-block">
+        <span id="flagstatus"></span>
+      </div>
+      <canvas id="minimap" width="150" height="110"></canvas>
+    </div>
+
+    <div id="msg"></div>
+
+    <!-- Touch controls (shown on touch devices) -->
+    <div id="touch">
+      <div id="stickZone">
+        <div id="stickBase"><div id="stickThumb"></div></div>
+      </div>
+      <div id="buttons">
+        <div class="tbtn" id="btnMine"><span>MINE</span><em id="mineCount">×4</em></div>
+        <div class="tbtn" id="btnMG"><span>MG</span><em>hold</em></div>
+        <div class="tbtn big" id="btnShell"><span>FIRE</span><em>shell</em></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overlay screens -->
+  <div id="overlay">
+    <div id="overlay-card">
+      <h1 id="overlay-title">TANKS AMAZE</h1>
+      <p id="overlay-text">
+        Steal the enemy flag and haul it back to your green base pad.<br>
+        Every terrain is a maze — watch for dead ends and ambushes.
+      </p>
+      <div id="overlay-keys">
+        <div><kbd>W A S D</kbd> / <kbd>&uarr;&darr;&larr;&rarr;</kbd> drive &amp; steer</div>
+        <div><kbd>SPACE</kbd> fire shell &nbsp; <kbd>F</kbd> machine gun (hold) &nbsp; <kbd>E</kbd> drop mine</div>
+        <div class="touch-hint">On mobile: left thumb = joystick, right thumb = fire buttons</div>
+      </div>
+      <button id="overlay-btn">DEPLOY</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/maze.js"></script>
+<script src="js/input.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
