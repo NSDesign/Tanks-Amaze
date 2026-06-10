@@ -5,7 +5,9 @@ generated maze themed as a different terrain — City, Town, Forest, Desert,
 Tundra — full of dead ends and choke points. Steal the enemy flag and haul
 it back to your base pad while AI tanks hunt you and try to capture yours.
 
-**Play it:** open `index.html` in any modern browser, or serve the folder:
+**▶ Play it now:** <https://nsdesign.github.io/Tanks-Amaze/>
+
+Or run it locally — open `index.html` in any modern browser, or serve the folder:
 
 ```sh
 python3 -m http.server 8000
@@ -58,3 +60,13 @@ js/input.js     keyboard + touch joystick/buttons, gesture prevention
 js/entities.js  Tank, Shell, Bullet, Mine, collision & LOS helpers
 js/game.js      themes, levels, AI, CTF rules, HUD, rendering, audio
 ```
+
+## Deployment
+
+Every push of the game code triggers the GitHub Actions workflow in
+`.github/workflows/deploy-pages.yml`, which publishes the repo root to
+GitHub Pages — the live site updates automatically.
+
+## License
+
+[MIT](LICENSE)

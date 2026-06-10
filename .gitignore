@@ -1,0 +1,20 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (only used for local tooling/tests; the game has no dependencies)
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Logs & temp
+*.log
+*.tmp
+.cache/
