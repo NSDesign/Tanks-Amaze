@@ -91,6 +91,7 @@
       wall: '#67737e', wallEdge: '#2c343c',
       braid: 0.1, breakP: 0.2, mudN: 0.5, wireN: 1.4, hedgeN: 1.7, river: false,
       mudColors: ['#46413a', '#544d44'], // oil & rubble pits
+      breakOverlay: 'rgba(0, 0, 0, .16)', // condemned buildings read darker
       detail(ctx, r) { // windows on buildings
         ctx.fillStyle = 'rgba(255, 224, 130, .55)';
         const horizontal = r.w > r.h;
@@ -107,6 +108,7 @@
       wall: '#27462a', wallEdge: '#16291a',
       braid: 0.16, breakP: 0.07, mudN: 1.7, wireN: 1.0, hedgeN: 0.5, river: true,
       mudColors: ['#5b4a2e', '#6b583a'], // bog
+      breakOverlay: 'rgba(214, 232, 200, .13)', // lighten so they blend with foliage
       detail(ctx, r) { // tree canopies along the wall
         const horizontal = r.w > r.h;
         const len = horizontal ? r.w : r.h;
@@ -125,6 +127,7 @@
       name: 'Desert', floor: '#c5a263', speck: '#b69253',
       wall: '#9c7c45', wallEdge: '#6b522a',
       braid: 0.3, breakP: 0.15, mudN: 1.2, wireN: 0.5, hedgeN: 0.8, river: false,
+      breakOverlay: 'rgba(64, 42, 16, .16)', // crumbling adobe reads darker
       mudColors: ['#d6b97e', '#c5a668'], // soft sand sinks the tracks
       detail(ctx, r) { // cracked adobe
         ctx.strokeStyle = 'rgba(60,42,18,.35)';
@@ -142,12 +145,14 @@
   ];
 
   const LEVELS = [
-    { cols: 13, rows: 9, enemies: 2 },
-    { cols: 15, rows: 11, enemies: 2 },
-    { cols: 15, rows: 11, enemies: 3 },
-    { cols: 17, rows: 11, enemies: 3 },
-    { cols: 17, rows: 13, enemies: 4 },
-    { cols: 19, rows: 13, enemies: 4 },
+    // caps = flag captures required to clear the level; enemy speed and
+    // firepower also scale with the level index (see startLevel)
+    { cols: 13, rows: 9, enemies: 2, caps: 1 },
+    { cols: 15, rows: 11, enemies: 2, caps: 1 },
+    { cols: 15, rows: 11, enemies: 3, caps: 1 },
+    { cols: 17, rows: 11, enemies: 3, caps: 2 },
+    { cols: 17, rows: 13, enemies: 4, caps: 2 },
+    { cols: 19, rows: 13, enemies: 4, caps: 2 },
   ];
 
   const CELL = 100;
@@ -158,6 +163,7 @@
     enemyDelta: [-1, 0, 1],
     enemySpeed: [0.85, 1, 1.15],
     enemyReload: [1.6, 1.1, 0.85],
+    enemyDamage: [0.85, 1, 1.15],
     capturesToLose: [5, 3, 2],
   };
 
@@ -230,6 +236,7 @@
     bullets: [],
     mines: [],
     particles: [],
+    rings: [],   // expanding shockwave circles
     flags: [],
     // obstacles & terrain
     river: null,
@@ -356,6 +363,7 @@
       this.strikes = [];
       this.bombs = [];
       this.fires = [];
+      this.rings = [];
       for (const f of this.flags) {
         f.state = 'base';
         f.carrier = null;
@@ -379,6 +387,14 @@
     },
 
     spawnExplosion(x, y, size, color) {
+      // hot core flash
+      this.particles.push({
+        kind: 'flash', x, y, vx: 0, vy: 0,
+        life: 0.13, maxLife: 0.13, r: size * 0.9, color: '#fff3c4',
+      });
+      // expanding shockwave ring
+      this.rings.push({ x, y, r: size * 0.25, speed: size * 5.5, life: 0.34, maxLife: 0.34 });
+      // fire sparks
       for (let i = 0; i < Math.floor(size * 0.7); i++) {
         const a = Math.random() * Math.PI * 2;
         const sp = Math.random() * size * 4;
@@ -389,6 +405,37 @@
           maxLife: 0.75,
           r: 2 + Math.random() * (size * 0.12),
           color: Math.random() < 0.55 ? color : (Math.random() < 0.5 ? '#ffe28a' : '#7a7a7a'),
+        });
+      }
+      // rising smoke that grows and drifts
+      for (let i = 0; i < 4 + Math.floor(size / 9); i++) {
+        const a = Math.random() * Math.PI * 2;
+        this.particles.push({
+          kind: 'smoke', x: x + Math.cos(a) * size * 0.2, y: y + Math.sin(a) * size * 0.2,
+          vx: (Math.random() - 0.5) * 36, vy: -12 - Math.random() * 18,
+          life: 0.8 + Math.random() * 0.7, maxLife: 1.5,
+          r: 4 + Math.random() * size * 0.14, grow: 16,
+          color: Math.random() < 0.5 ? '#3c3c3c' : '#585858',
+        });
+      }
+    },
+
+    spawnMuzzle(x, y, angle, small) {
+      const n = small ? 2 : 6;
+      for (let i = 0; i < n; i++) {
+        const a = angle + (Math.random() - 0.5) * 0.7;
+        const sp = 90 + Math.random() * 130;
+        this.particles.push({
+          x, y,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          life: 0.12 + Math.random() * 0.08, maxLife: 0.2,
+          r: 1.5 + Math.random() * 2, color: Math.random() < 0.6 ? '#ffd9a0' : '#ff9d5c',
+        });
+      }
+      if (!small) {
+        this.particles.push({
+          kind: 'flash', x: x + Math.cos(angle) * 6, y: y + Math.sin(angle) * 6,
+          vx: 0, vy: 0, life: 0.07, maxLife: 0.07, r: 11, color: '#ffe9b0',
         });
       }
     },
@@ -443,7 +490,7 @@
         this.launchAirSupport(pk.sub);
         this.showMsg(`AIR SUPPORT INBOUND — ${names[pk.sub]}`, 2.4);
       } else {
-        p.mineBonus = Math.min(4, (p.mineBonus || 0) + 2);
+        p.mineBonus = Math.min(8, (p.mineBonus || 0) + 2);
         this.showMsg(`EXTRA MINES — CAPACITY ${p.maxMines()}`, 2.2);
       }
     },
@@ -585,6 +632,7 @@
       this.bullets = [];
       this.mines = [];
       this.particles = [];
+      this.rings = [];
       this.tanks = [];
       this.pickups = [];
       this.pickupT = 6;
@@ -659,6 +707,10 @@
       this.tanks.push(this.player);
 
       const d = this.difficulty;
+      const lvlIdx = levelIdx % LEVELS.length;
+      this.capsNeeded = cfg.caps;
+      this.levelCaptures = 0;
+      const lvlF = 1 + lvlIdx * 0.05; // each level the enemy gets quicker...
       const enemyCount = Math.max(1, cfg.enemies + Math.min(this.cycle, 2) + DIFF.enemyDelta[d]);
       const spawnCells = [
         [cols - 1, 0], [cols - 2, 0], [cols - 1, 1], [cols - 2, 1],
@@ -668,9 +720,11 @@
         const sc = spawnCells[i % spawnCells.length];
         const p = this.cellCenter(sc[0], sc[1]);
         const t = new Tank(1, p.x, p.y, Math.PI / 2, false);
-        // difficulty and later cycles tune AI speed and reload time
-        t.maxSpeed *= DIFF.enemySpeed[d] * (1 + this.cycle * 0.08);
-        t.shellCdMult = DIFF.enemyReload[d];
+        // difficulty, level index and later cycles tune AI speed,
+        // reload time and shot damage
+        t.maxSpeed *= DIFF.enemySpeed[d] * lvlF * (1 + this.cycle * 0.08);
+        t.shellCdMult = DIFF.enemyReload[d] / lvlF;
+        t.dmgMult = DIFF.enemyDamage[d] * (1 + lvlIdx * 0.08);
         t.ai = {
           role: i === 0 ? 'capture' : 'hunter',
           path: null, wpIdx: 0,
@@ -740,12 +794,20 @@
         }
       }
 
-      // mud / soft sand patches (colors come from the terrain theme)
+      // mud / soft sand patches: depth from a radial gradient, a darker
+      // sunken rim, wet blobs and a small specular sheen
       for (const m of this.mud) {
-        g.fillStyle = th.mudColors[0];
+        const grad = g.createRadialGradient(m.x - m.r * 0.25, m.y - m.r * 0.2, m.r * 0.15, m.x, m.y, m.r);
+        grad.addColorStop(0, th.mudColors[1]);
+        grad.addColorStop(0.7, th.mudColors[0]);
+        grad.addColorStop(1, th.mudColors[0]);
+        g.fillStyle = grad;
         g.beginPath();
         g.ellipse(m.x, m.y, m.r, m.r * 0.8, 0, 0, Math.PI * 2);
         g.fill();
+        g.strokeStyle = 'rgba(0, 0, 0, .22)';
+        g.lineWidth = 2.5;
+        g.stroke();
         g.fillStyle = th.mudColors[1];
         for (let i = 0; i < 6; i++) {
           g.beginPath();
@@ -754,6 +816,10 @@
                 4 + Math.random() * 5, 0, Math.PI * 2);
           g.fill();
         }
+        g.fillStyle = 'rgba(255, 255, 255, .1)';
+        g.beginPath();
+        g.ellipse(m.x - m.r * 0.3, m.y - m.r * 0.3, m.r * 0.3, m.r * 0.14, -0.5, 0, Math.PI * 2);
+        g.fill();
       }
 
       // barbed wire (denser sections have more strands)
@@ -779,15 +845,33 @@
         g.fillRect(w.x + w.w - 2, w.y - 2, 4, w.h + 4);
       }
 
-      // base pads
+      // base pads glow from the center
       for (const f of this.flags) {
-        g.fillStyle = f.team === 0 ? 'rgba(110, 224, 138, .25)' : 'rgba(255, 122, 107, .25)';
-        g.strokeStyle = f.team === 0 ? 'rgba(110, 224, 138, .7)' : 'rgba(255, 122, 107, .7)';
+        const tc = f.team === 0 ? '110, 224, 138' : '255, 122, 107';
+        const pg = g.createRadialGradient(f.baseX, f.baseY, 4, f.baseX, f.baseY, 40);
+        pg.addColorStop(0, `rgba(${tc}, .5)`);
+        pg.addColorStop(0.7, `rgba(${tc}, .2)`);
+        pg.addColorStop(1, `rgba(${tc}, .08)`);
+        g.fillStyle = pg;
+        g.strokeStyle = `rgba(${tc}, .7)`;
         g.lineWidth = 3;
         g.beginPath();
         g.arc(f.baseX, f.baseY, 38, 0, Math.PI * 2);
         g.fill();
         g.stroke();
+        g.strokeStyle = `rgba(${tc}, .3)`;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.arc(f.baseX, f.baseY, 30, 0, Math.PI * 2);
+        g.stroke();
+      }
+
+      // soft drop shadows give the walls height (two offset passes);
+      // breakable walls cast theirs live so rubble leaves no ghost
+      g.fillStyle = 'rgba(0, 0, 0, .1)';
+      for (const r of this.walls) {
+        g.fillRect(r.x + 3, r.y + 4, r.w, r.h);
+        g.fillRect(r.x + 6, r.y + 7, r.w, r.h);
       }
 
       // walls + theme detail
@@ -852,11 +936,17 @@
 
     onPlayerCapture() {
       this.playerScore++;
+      this.levelCaptures++;
       sfx.capture();
-      this.showMsg('FLAG CAPTURED! +1', 2.4);
       this.shake(6);
-      this.state = 'levelup';
-      this.stateT = 2.0;
+      if (this.levelCaptures >= this.capsNeeded) {
+        this.showMsg('AREA SECURED — ADVANCING!', 2.4);
+        this.state = 'levelup';
+        this.stateT = 2.0;
+      } else {
+        this.showMsg(`FLAG CAPTURED (${this.levelCaptures}/${this.capsNeeded})`, 2.4);
+        this.resetRound();
+      }
     },
 
     onEnemyCapture() {
@@ -1013,10 +1103,20 @@
         p.life -= dt;
         p.x += p.vx * dt;
         p.y += p.vy * dt;
-        p.vx *= 0.92;
-        p.vy *= 0.92;
+        if (p.kind === 'smoke') {
+          p.r += p.grow * dt;
+          p.vy -= 8 * dt;
+        } else {
+          p.vx *= 0.92;
+          p.vy *= 0.92;
+        }
       }
       this.particles = this.particles.filter(p => p.life > 0);
+      for (const r of this.rings) {
+        r.r += r.speed * dt;
+        r.life -= dt;
+      }
+      this.rings = this.rings.filter(r => r.life > 0);
 
       if (this.state === 'playing') this.updateFlags(dt);
 
@@ -1221,23 +1321,40 @@
       el.healthbar.className = frac > 0.5 ? '' : frac > 0.25 ? 'warn' : 'low';
 
       el.score.innerHTML = `<b class="you">${this.playerScore}</b> — <b class="foe">${this.enemyScore}</b>`;
+      el.levelname.textContent = `Level ${this.level + 1} · ${this.theme.name}` +
+        (this.capsNeeded > 1 ? ` · ⚑ ${this.levelCaptures}/${this.capsNeeded}` : '');
 
       // FIRE button: rising fill reveals the solid shell as the gun reloads
       const reload = Math.max(0, Math.min(1, 1 - p.cdShell / (p.shellCdMult || 1)));
       el.shellFill.style.height = (reload * 100) + '%';
 
-      // mine pips: deployed mines stay behind as outlines
+      // mine rack: every 5 available mines collapse into an ammo box;
+      // loose ones overlap as discs; deployed ones remain as outlines
       const total = p.maxMines();
       const deployed = this.mines.filter(m => m.owner === p && !m.dead).length;
-      while (el.minePips.childElementCount < total) {
-        const pip = document.createElement('div');
-        pip.className = 'pip';
-        el.minePips.appendChild(pip);
+      const avail = total - deployed;
+      const boxes = Math.floor(avail / 5);
+      const loose = avail % 5;
+      const sig = boxes + '/' + loose + '/' + deployed;
+      if (el.minePips.dataset.sig !== sig) {
+        el.minePips.dataset.sig = sig;
+        el.minePips.innerHTML = '';
+        for (let i = 0; i < boxes; i++) {
+          const b = document.createElement('div');
+          b.className = 'mbox';
+          el.minePips.appendChild(b);
+        }
+        for (let i = 0; i < loose; i++) {
+          const pip = document.createElement('div');
+          pip.className = 'pip';
+          el.minePips.appendChild(pip);
+        }
+        for (let i = 0; i < deployed; i++) {
+          const pip = document.createElement('div');
+          pip.className = 'pip used';
+          el.minePips.appendChild(pip);
+        }
       }
-      while (el.minePips.childElementCount > total) el.minePips.lastChild.remove();
-      [...el.minePips.children].forEach((pip, i) => {
-        pip.classList.toggle('used', i >= total - deployed);
-      });
       el.btnMine.classList.toggle('cooldown', p.cdMine > 0.15 || deployed >= total);
 
       let status = '';
@@ -1277,14 +1394,40 @@
 
       ctx.drawImage(this.floorCanvas, 0, 0);
 
+      // drifting highlights make the river water move
+      if (this.river) {
+        const half = this.river.h / 2;
+        const crossX = [...this.river.bridges, this.river.tunnelCol].map(b => b * CELL + CELL / 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, .17)';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 16; i++) {
+          const xx = (this.time * 34 + i * (this.worldW / 16)) % this.worldW;
+          const yy = this.river.y - half + 8 + ((i * 37) % (this.river.h - 16));
+          if (crossX.some(cx2 => Math.abs(xx - cx2) < 50)) continue;
+          ctx.beginPath();
+          ctx.moveTo(xx, yy);
+          ctx.lineTo(xx + 13, yy);
+          ctx.stroke();
+        }
+      }
+
       // breakable walls (drawn live so cracks can grow and walls vanish)
+      ctx.fillStyle = 'rgba(0, 0, 0, .1)';
+      for (const bw of this.breakWalls) {
+        ctx.fillRect(bw.x + 3, bw.y + 4, bw.w, bw.h);
+        ctx.fillRect(bw.x + 6, bw.y + 7, bw.w, bw.h);
+      }
       for (const bw of this.breakWalls) {
         ctx.fillStyle = this.theme.wall;
+        ctx.fillRect(bw.x, bw.y, bw.w, bw.h);
+        // theme-tuned shading: lighter in Forest so they blend with the
+        // foliage walls, slightly darker elsewhere
+        ctx.fillStyle = this.theme.breakOverlay;
         ctx.fillRect(bw.x, bw.y, bw.w, bw.h);
         ctx.strokeStyle = this.theme.wallEdge;
         ctx.lineWidth = 2;
         ctx.strokeRect(bw.x + 1, bw.y + 1, bw.w - 2, bw.h - 2);
-        ctx.strokeStyle = 'rgba(18, 14, 8, .7)';
+        ctx.strokeStyle = 'rgba(18, 14, 8, .55)';
         ctx.lineWidth = 1.5;
         const cracks = 2 + (bw.maxHits - bw.hits) * 3;
         for (let i = 0; i < cracks; i++) {
@@ -1303,7 +1446,7 @@
       for (const f of this.flags) {
         if (f.state !== 'carried') {
           const bob = Math.sin(this.time * 3) * 2;
-          drawFlag(ctx, f.x, f.y + bob, f.team === 0 ? '#6fe08a' : '#ff7a6b', 1.15);
+          drawFlag(ctx, f.x, f.y + bob, f.team === 0 ? '#6fe08a' : '#ff7a6b', 1.15, f.team);
         }
       }
 
@@ -1436,13 +1579,26 @@
       }
 
       for (const p of this.particles) {
-        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        const a = Math.max(0, p.life / p.maxLife);
+        if (p.kind === 'smoke') ctx.globalAlpha = a * 0.4;
+        else if (p.kind === 'flash') ctx.globalAlpha = a * 0.85;
+        else ctx.globalAlpha = a;
         ctx.fillStyle = p.color;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+
+      // shockwave rings
+      for (const r of this.rings) {
+        const a = Math.max(0, r.life / r.maxLife);
+        ctx.strokeStyle = `rgba(255, 214, 150, ${a * 0.7})`;
+        ctx.lineWidth = 2 + a * 3;
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       // the under-river tunnel: a stone tube with arched portals at each
       // end so it reads as a tunnel rather than a floating slab
@@ -1584,6 +1740,14 @@
   el.overlayBtn.addEventListener('touchend', (e) => { e.preventDefault(); onOverlayButton(); }, { passive: false });
 
   /* ============================ Main loop ============================ */
+
+  // Optional custom enemy flag artwork: drop an SVG at assets/enemy-flag.svg
+  // and it replaces the built-in pennant (silently falls back if absent).
+  {
+    const img = new Image();
+    img.onload = () => { FlagAssets.enemy = img; };
+    img.src = 'assets/enemy-flag.svg';
+  }
 
   window.__game = game; // debug/testing handle
 

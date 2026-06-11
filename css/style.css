@@ -232,7 +232,10 @@ body.has-touch #touch {
 .tbtn.big.pressed { background: rgba(220, 90, 70, .65); }
 .tbtn.cooldown { opacity: .45; }
 
-.icon.mg { width: 26px; height: 26px; fill: #dce8f2; }
+.icon.mg { width: 28px; height: 26px; }
+.icon.mineMain { width: 25px; height: 25px; }
+
+#btnMine { flex-direction: column; gap: 1px; }
 
 /* FIRE button: outline shell always visible; the solid shell is revealed
    bottom-to-top by #shellFill (a rectangle clipped by the round button)
@@ -265,33 +268,62 @@ body.has-touch #touch {
   fill: #ffb39e;
 }
 
-/* mine button: little mines instead of a number; spent ones stay as outlines */
+/* mine rack: primary icon above, inventory chips below — loose mines
+   overlap like stacked discs; every 5 collapse into an ammo box */
 #minePips {
   display: flex;
-  flex-wrap: wrap;
-  width: 36px;
-  gap: 5px;
-  justify-content: center;
   align-items: center;
+  justify-content: center;
+  height: 13px;
+  max-width: 48px;
 }
 .pip {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #dce8f2;
-  box-shadow:
-    0 -6px 0 -4.4px #dce8f2,
-    0 6px 0 -4.4px #dce8f2,
-    -6px 0 0 -4.4px #dce8f2,
-    6px 0 0 -4.4px #dce8f2;
+  background: radial-gradient(circle at 35% 30%, #9aa3ab, #5d656c 50%, #353b40 85%);
+  border: 1px solid #22262a;
+  margin-left: -4px;
+  flex-shrink: 0;
+  position: relative;
 }
+.pip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #7d868e;
+}
+.pip:first-child { margin-left: 0; }
 .pip.used {
   background: transparent;
-  border: 1.5px solid rgba(220, 232, 242, .4);
-  box-shadow: none;
-  width: 8px;
-  height: 8px;
+  border: 1.5px solid rgba(220, 232, 242, .35);
 }
+.pip.used::after { display: none; }
+.mbox {
+  width: 15px;
+  height: 12px;
+  border-radius: 2.5px;
+  background: linear-gradient(#86714a, #5f4f33);
+  border: 1px solid #3a3122;
+  margin-left: -3px;
+  flex-shrink: 0;
+  position: relative;
+}
+.mbox::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 2.5px;
+  background: rgba(20, 16, 8, .5);
+}
+.mbox:first-child { margin-left: 0; }
 
 /* Short (landscape) screens: slimmer deck, smaller controls */
 @media (max-height: 500px) {
@@ -299,14 +331,17 @@ body.has-touch #touch {
   #stickThumb { width: 38px; height: 38px; }
   .tbtn.small { width: 42px; height: 42px; }
   .tbtn.big { width: 72px; height: 72px; }
-  .icon.mg { width: 19px; height: 19px; }
+  .icon.mg { width: 20px; height: 19px; }
+  .icon.mineMain { width: 18px; height: 18px; }
   .icon.shell { width: 22px; height: 37px; }
   #shellFill .icon.shell.solid { bottom: 17.5px; }
   #btnCol { gap: 6px; }
   #buttons { gap: 10px; }
-  #minePips { width: 28px; gap: 3px; }
-  .pip { width: 8px; height: 8px; box-shadow: 0 -4.5px 0 -3.2px #dce8f2, 0 4.5px 0 -3.2px #dce8f2, -4.5px 0 0 -3.2px #dce8f2, 4.5px 0 0 -3.2px #dce8f2; }
-  .pip.used { width: 6px; height: 6px; }
+  #minePips { height: 10px; max-width: 34px; }
+  .pip { width: 8px; height: 8px; margin-left: -3px; }
+  .pip::after { width: 2.5px; height: 2.5px; }
+  .mbox { width: 11px; height: 9px; margin-left: -2px; }
+  .mbox::after { left: 4.5px; width: 2px; }
 }
 
 /* ---------- Overlay ---------- */

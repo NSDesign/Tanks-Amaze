@@ -228,6 +228,7 @@ class Tank {
     game.shells.push(new Shell(m.x, m.y, this.turretAngle, this));
     game.sfx.shell();
     game.addKick(this, -14);
+    if (game.spawnMuzzle) game.spawnMuzzle(m.x, m.y, this.turretAngle, false);
     return true;
   }
 
@@ -238,6 +239,7 @@ class Tank {
     const spread = (Math.random() - 0.5) * 0.10;
     game.bullets.push(new Bullet(m.x, m.y, this.turretAngle + spread, this));
     game.sfx.mg();
+    if (game.spawnMuzzle) game.spawnMuzzle(m.x, m.y, this.turretAngle, true);
     return true;
   }
 
@@ -261,6 +263,12 @@ class Tank {
 
     ctx.save();
     ctx.translate(this.x, this.y);
+
+    // grounding shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, .25)';
+    ctx.beginPath();
+    ctx.ellipse(3, 4, 18.5, 15.5, this.angle, 0, Math.PI * 2);
+    ctx.fill();
 
     if (this.invulnT > 0 && Math.floor(this.invulnT * 10) % 2 === 0) {
       ctx.globalAlpha = 0.45;
@@ -317,7 +325,8 @@ class Tank {
     if (this.carryingFlag) {
       const fx = this.x - Math.cos(this.angle) * 22;
       const fy = this.y - Math.sin(this.angle) * 22;
-      drawFlag(ctx, fx, fy, this.carryingFlag.team === 0 ? '#6fe08a' : '#ff7a6b', 0.85);
+      drawFlag(ctx, fx, fy, this.carryingFlag.team === 0 ? '#6fe08a' : '#ff7a6b', 0.85,
+               this.carryingFlag.team);
     }
 
     // hp bar (only when damaged)
@@ -331,7 +340,20 @@ class Tank {
   }
 }
 
-function drawFlag(ctx, x, y, color, scale = 1) {
+/* Custom flag artwork: when assets/enemy-flag.svg exists it is loaded
+   into FlagAssets.enemy (see game.js) and replaces the vector enemy
+   flag; otherwise the built-in pennant is drawn. */
+const FlagAssets = { enemy: null };
+
+function drawFlag(ctx, x, y, color, scale = 1, team) {
+  if (team === 1 && FlagAssets.enemy) {
+    const img = FlagAssets.enemy;
+    const h = 34 * scale;
+    const w = h * ((img.width && img.height) ? img.width / img.height : 1);
+    // anchor the artwork's bottom-left near the pole's ground point
+    ctx.drawImage(img, x - w * 0.15, y + 10 * scale - h, w, h);
+    return;
+  }
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
@@ -387,7 +409,7 @@ class Shell {
       if (!t.alive || t.team === this.team) continue;
       const d = Math.hypot(t.x - this.x, t.y - this.y);
       if (d < t.radius + this.r) {
-        t.damage(DMG.SHELL, game, this.owner);
+        t.damage(DMG.SHELL * (this.owner.dmgMult || 1), game, this.owner);
         this.explode(game);
         return;
       }
@@ -403,7 +425,7 @@ class Shell {
     for (const t of game.tanks) {
       if (!t.alive || t.team === this.team) continue;
       const d = Math.hypot(t.x - this.x, t.y - this.y);
-      if (d < 46) t.damage(DMG.SHELL * 0.4, game, this.owner);
+      if (d < 46) t.damage(DMG.SHELL * 0.4 * (this.owner.dmgMult || 1), game, this.owner);
     }
   }
 
@@ -457,7 +479,7 @@ class Bullet {
       if (!t.alive || t.team === this.team) continue;
       const d = Math.hypot(t.x - this.x, t.y - this.y);
       if (d < t.radius + this.r) {
-        t.damage(DMG.BULLET, game, this.owner);
+        t.damage(DMG.BULLET * (this.owner.dmgMult || 1), game, this.owner);
         game.spawnSpark(this.x, this.y);
         this.dead = true;
         return;
@@ -536,18 +558,41 @@ class Mine {
   draw(ctx, time) {
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.fillStyle = this.armed() ? '#3a3f45' : '#565e66';
+    // contact shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, .25)';
+    ctx.beginPath();
+    ctx.ellipse(1.5, 2, this.r + 1, this.r * 0.85, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // domed steel body
+    const grad = ctx.createRadialGradient(-3, -3.5, 1, 0, 0, this.r);
+    if (this.armed()) {
+      grad.addColorStop(0, '#6c757d');
+      grad.addColorStop(0.55, '#42484e');
+      grad.addColorStop(1, '#23272b');
+    } else {
+      grad.addColorStop(0, '#8a949c');
+      grad.addColorStop(0.55, '#5b636b');
+      grad.addColorStop(1, '#343a40');
+    }
+    ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(0, 0, this.r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = '#23272b';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1c2024';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
-    // prongs
-    ctx.fillStyle = '#23272b';
-    for (let i = 0; i < 4; i++) {
-      const a = i * Math.PI / 2 + Math.PI / 4;
-      ctx.fillRect(Math.cos(a) * 7 - 1.5, Math.sin(a) * 7 - 1.5, 3, 3);
+    // pressure plate ring + bolts
+    ctx.strokeStyle = 'rgba(20, 23, 26, .7)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.r * 0.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#1c2024';
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3 + Math.PI / 6;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * this.r * 0.78, Math.sin(a) * this.r * 0.78, 1.2, 0, Math.PI * 2);
+      ctx.fill();
     }
     // status light: slow amber when idle, fast red during final countdown
     let lit, color;

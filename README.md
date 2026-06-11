@@ -57,11 +57,18 @@ No build step, no dependencies — plain HTML/CSS/JS on a canvas.
    the first hit you take.
 3. **Air support** `✈` — a plane sweeps the enemy's side of the map with
    bombs, napalm, or a heavy machine-gun strafing run.
-4. **Extra mines** `+` — raises your mine capacity by 2 (up to 8).
+4. **Extra mines** `+` — raises your mine capacity by 2 (up to 12).
 
 On mobile the FIRE button shows the reload as a fill rising bottom-to-top
-that re-reveals the shell icon, and the mine button shows your mines as
-little pips — spent ones stay behind as outlines until they detonate.
+that re-reveals the shell icon. The mine button shows your inventory as
+overlapping mine discs — every 5 collapse into an ammo box, and deployed
+mines stay behind as outlines until they detonate.
+
+Levels ramp up alongside the objective: later levels field more, faster,
+harder-hitting enemies and require **two** flag captures to clear.
+
+The enemy flag artwork lives at `assets/enemy-flag.svg` — replace that
+file with any SVG to customize it; the game scales it automatically.
 
 ### Weapons & damage (strongest → weakest)
 
