@@ -141,9 +141,11 @@ body.has-touch #touch { display: block; }
   background: rgba(40, 60, 80, .25);
   left: 36px;
   bottom: calc(36px + env(safe-area-inset-bottom));
-  display: none;
 }
-#stickBase.active { display: block; }
+#stickBase.active {
+  border-color: rgba(190, 225, 250, .65);
+  background: rgba(50, 75, 100, .35);
+}
 
 #stickThumb {
   position: absolute;
@@ -154,6 +156,9 @@ body.has-touch #touch { display: block; }
   border: 2px solid rgba(220, 240, 255, .6);
   left: 32px;
   top: 32px;
+}
+#stickThumb.spring {
+  transition: left .1s ease-out, top .1s ease-out;
 }
 
 #buttons {

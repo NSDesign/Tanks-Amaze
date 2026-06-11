@@ -80,30 +80,51 @@ const Input = (() => {
 
   /* ---------- touch joystick ---------- */
 
+  // Fixed circle-in-circle joystick: the base stays anchored bottom-left
+  // and the thumb knob deflects from the base center.
   const stickZone = document.getElementById('stickZone');
   const stickBase = document.getElementById('stickBase');
   const stickThumb = document.getElementById('stickThumb');
-  const STICK_RANGE = 46; // px of thumb travel
+  const STICK_RANGE = 46;  // px of thumb travel
+  const GRAB_RADIUS = 110; // how far from the stick a touch may start and still grab it
 
   let stickTouchId = null;
-  let stickOrigin = { x: 0, y: 0 };
+  let stickCenter = { x: 0, y: 0 };
 
   function setThumb(dx, dy) {
     stickThumb.style.left = (32 + dx) + 'px';
     stickThumb.style.top = (32 + dy) + 'px';
   }
 
+  function applyDeflection(clientX, clientY) {
+    let dx = clientX - stickCenter.x;
+    let dy = clientY - stickCenter.y;
+    const d = Math.hypot(dx, dy);
+    const mag = Math.min(1, d / STICK_RANGE);
+    if (d > STICK_RANGE) { dx = dx / d * STICK_RANGE; dy = dy / d * STICK_RANGE; }
+    setThumb(dx, dy);
+    if (mag > 0.12) {
+      state.joyActive = true;
+      state.joyAngle = Math.atan2(dy, dx);
+      state.joyMag = mag;
+    } else {
+      state.joyActive = false;
+      state.joyMag = 0;
+    }
+  }
+
   stickZone.addEventListener('touchstart', (e) => {
     e.preventDefault();
     if (stickTouchId !== null) return;
     const t = e.changedTouches[0];
+    const r = stickBase.getBoundingClientRect();
+    stickCenter = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    // only grab when the touch starts on or near the stick
+    if (Math.hypot(t.clientX - stickCenter.x, t.clientY - stickCenter.y) > GRAB_RADIUS) return;
     stickTouchId = t.identifier;
-    stickOrigin = { x: t.clientX, y: t.clientY };
     stickBase.classList.add('active');
-    stickBase.style.left = (t.clientX - 62) + 'px';
-    stickBase.style.top = (t.clientY - 62) + 'px';
-    stickBase.style.bottom = 'auto';
-    setThumb(0, 0);
+    stickThumb.classList.remove('spring');
+    applyDeflection(t.clientX, t.clientY);
     state.anyInput = true;
   }, { passive: false });
 
@@ -111,20 +132,7 @@ const Input = (() => {
     e.preventDefault();
     for (const t of e.changedTouches) {
       if (t.identifier !== stickTouchId) continue;
-      let dx = t.clientX - stickOrigin.x;
-      let dy = t.clientY - stickOrigin.y;
-      const d = Math.hypot(dx, dy);
-      const mag = Math.min(1, d / STICK_RANGE);
-      if (d > STICK_RANGE) { dx = dx / d * STICK_RANGE; dy = dy / d * STICK_RANGE; }
-      setThumb(dx, dy);
-      if (mag > 0.12) {
-        state.joyActive = true;
-        state.joyAngle = Math.atan2(dy, dx);
-        state.joyMag = mag;
-      } else {
-        state.joyActive = false;
-        state.joyMag = 0;
-      }
+      applyDeflection(t.clientX, t.clientY);
     }
   }, { passive: false });
 
@@ -135,6 +143,8 @@ const Input = (() => {
       state.joyActive = false;
       state.joyMag = 0;
       stickBase.classList.remove('active');
+      stickThumb.classList.add('spring'); // knob springs back to center
+      setThumb(0, 0);
     }
   }
   stickZone.addEventListener('touchend', endStick);
