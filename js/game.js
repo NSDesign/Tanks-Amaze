@@ -1741,13 +1741,50 @@
 
   /* ============================ Main loop ============================ */
 
-  // Optional custom enemy flag artwork: drop an SVG at assets/enemy-flag.svg
-  // and it replaces the built-in pennant (silently falls back if absent).
-  {
-    const img = new Image();
-    img.onload = () => { FlagAssets.enemy = img; };
-    img.src = 'assets/enemy-flag.svg';
-  }
+  // Custom enemy flag artwork: prefer the compressed assets/enemy-flag.svgz
+  // (inflated in the browser, since static hosts rarely set the right
+  // headers for .svgz), fall back to enemy-flag.svg, then to the built-in
+  // pennant. The SVG is rasterized once to an offscreen canvas so drawing
+  // it every frame stays cheap.
+  (async () => {
+    const loadImg = (src) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('bad image'));
+      img.src = src;
+    });
+    const fromText = async (text) => {
+      const vb = text.match(/viewBox=["']\s*[\d.+-]+[ ,]+[\d.+-]+[ ,]+([\d.+-]+)[ ,]+([\d.+-]+)/);
+      const aspect = vb ? parseFloat(vb[1]) / parseFloat(vb[2]) : 0.8;
+      const img = await loadImg(URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' })));
+      const raster = document.createElement('canvas');
+      raster.height = 192; // plenty for ~50px on-screen at high dpr
+      raster.width = Math.round(192 * aspect);
+      raster.getContext('2d').drawImage(img, 0, 0, raster.width, raster.height);
+      FlagAssets.enemyAspect = aspect;
+      FlagAssets.enemy = raster;
+    };
+    try {
+      const res = await fetch('assets/enemy-flag.svgz');
+      if (!res.ok) throw new Error('missing svgz');
+      const buf = new Uint8Array(await res.arrayBuffer());
+      let text;
+      if (buf[0] === 0x1f && buf[1] === 0x8b) {
+        // raw gzip bytes — inflate here
+        const ds = new DecompressionStream('gzip');
+        text = await new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+      } else {
+        text = new TextDecoder().decode(buf); // server already inflated it
+      }
+      await fromText(text);
+    } catch (e) {
+      try {
+        const res = await fetch('assets/enemy-flag.svg');
+        if (!res.ok) throw new Error('missing svg');
+        await fromText(await res.text());
+      } catch (e2) { /* keep the vector pennant */ }
+    }
+  })();
 
   window.__game = game; // debug/testing handle
 
