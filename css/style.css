@@ -92,6 +92,7 @@ html, body {
 
 #flag-block { flex: 1; align-items: flex-start; }
 #flagstatus { font-size: 12px; color: #ffd34d; font-weight: 600; min-height: 16px; }
+#powerstatus { font-size: 11px; color: #5fd9e8; font-weight: 600; letter-spacing: .5px; }
 
 #minimap {
   border: 1px solid #3b4f63;

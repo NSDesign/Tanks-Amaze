@@ -97,7 +97,7 @@
     },
     {
       name: 'Town', floor: '#8d7c5f', speck: '#9c8b6c',
-      wall: '#a05a40', wallEdge: '#5e3322',
+      wall: '#a05a40', wallEdge: '#5e3322', river: true,
       detail(ctx, r) { // roof ridges
         ctx.strokeStyle = 'rgba(255,255,255,.18)';
         ctx.lineWidth = 2;
@@ -109,7 +109,7 @@
     },
     {
       name: 'Forest', floor: '#3e6339', speck: '#476f41',
-      wall: '#27462a', wallEdge: '#16291a',
+      wall: '#27462a', wallEdge: '#16291a', river: true,
       detail(ctx, r) { // tree canopies along the wall
         const horizontal = r.w > r.h;
         const len = horizontal ? r.w : r.h;
@@ -174,6 +174,7 @@
     score: document.getElementById('score'),
     levelname: document.getElementById('levelname'),
     flagstatus: document.getElementById('flagstatus'),
+    powerstatus: document.getElementById('powerstatus'),
     msg: document.getElementById('msg'),
     mineCount: document.getElementById('mineCount'),
     btnShell: document.getElementById('btnShell'),
@@ -219,6 +220,22 @@
     mines: [],
     particles: [],
     flags: [],
+    // obstacles & terrain
+    river: null,
+    riverRects: [],
+    breakWalls: [],
+    mud: [],
+    wires: [],
+    hedgehogs: [],
+    tunnels: [],
+    tankSolids: [],
+    losBlockers: [],
+    // pickups & air support
+    pickups: [],
+    pickupT: 0,
+    strikes: [],
+    bombs: [],
+    fires: [],
     player: null,
     floorCanvas: null,
     miniCanvas: null,
@@ -238,6 +255,107 @@
         x: Math.min(this.cells.length - 1, Math.max(0, Math.floor(x / CELL))),
         y: Math.min(this.cells[0].length - 1, Math.max(0, Math.floor(y / CELL))),
       };
+    },
+
+    /* Closing river-line walls can disconnect maze regions; re-open
+       same-side walls until everything is reachable again. */
+    ensureConnected() {
+      const cols = this.cells.length, rows = this.cells[0].length;
+      for (let guard = 0; guard < 80; guard++) {
+        const reach = new Set(['0,0']);
+        const stack = [[0, 0]];
+        while (stack.length) {
+          const [x, y] = stack.pop();
+          const c = this.cells[x][y];
+          for (const d of Maze.DIRS) {
+            if (c.walls[d[2]]) continue;
+            const nx = x + d[0], ny = y + d[1];
+            if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+            const k = nx + ',' + ny;
+            if (!reach.has(k)) { reach.add(k); stack.push([nx, ny]); }
+          }
+        }
+        if (reach.size === cols * rows) return;
+        let opened = false;
+        for (let x = 0; x < cols && !opened; x++) {
+          for (let y = 0; y < rows && !opened; y++) {
+            if (!reach.has(x + ',' + y)) continue;
+            for (const d of Maze.DIRS) {
+              const nx = x + d[0], ny = y + d[1];
+              if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+              if (reach.has(nx + ',' + ny)) continue;
+              // never punch a new crossing through the river line itself
+              if (this.river && d[0] === 0) {
+                const crossDown = d[1] === 1 && ny === this.river.ry;
+                const crossUp = d[1] === -1 && y === this.river.ry;
+                if (crossDown || crossUp) continue;
+              }
+              this.cells[x][y].walls[d[2]] = false;
+              this.cells[nx][ny].walls[d[3]] = false;
+              opened = true;
+              break;
+            }
+          }
+        }
+        if (!opened) return; // shouldn't happen, but never loop forever
+      }
+    },
+
+    rebuildSolids() {
+      this.tankSolids = [...this.walls, ...this.breakWalls, ...this.riverRects];
+      this.losBlockers = [...this.walls, ...this.breakWalls, ...this.tunnels];
+    },
+
+    /* Movement multiplier from terrain under a tank: mud slows, dense
+       barbed wire all but stops a tank (light wire just drags). */
+    terrainFactor(t) {
+      let f = 1;
+      for (const m of this.mud) {
+        if (Math.hypot(t.x - m.x, t.y - m.y) < m.r + t.radius * 0.4) { f = Math.min(f, 0.45); break; }
+      }
+      for (const w of this.wires) {
+        if (t.x > w.x - t.radius * 0.5 && t.x < w.x + w.w + t.radius * 0.5 &&
+            t.y > w.y - t.radius * 0.5 && t.y < w.y + w.h + t.radius * 0.5) {
+          f = Math.min(f, w.density >= 0.6 ? 0.1 : 0.5);
+        }
+      }
+      return f;
+    },
+
+    damageBreakWall(bw) {
+      bw.hits--;
+      if (bw.hits <= 0) {
+        this.breakWalls = this.breakWalls.filter(b => b !== bw);
+        this.spawnExplosion(bw.x + bw.w / 2, bw.y + bw.h / 2, 42, '#c9b18a');
+        sfx.boomSmall();
+        this.shake(4);
+        this.rebuildSolids();
+        this.renderMiniWalls();
+      } else {
+        this.spawnSpark(bw.x + bw.w / 2, bw.y + bw.h / 2);
+      }
+    },
+
+    /* After a capture the round resets: every tank (enemies included)
+       respawns at its base and the field is cleared of munitions. */
+    resetRound() {
+      this.shells = [];
+      this.bullets = [];
+      this.mines = [];
+      this.strikes = [];
+      this.bombs = [];
+      this.fires = [];
+      for (const f of this.flags) {
+        f.state = 'base';
+        f.carrier = null;
+        f.x = f.baseX; f.y = f.baseY;
+        f.returnT = 0;
+      }
+      for (const t of this.tanks) {
+        t.carryingFlag = null;
+        t.respawn(this);
+        if (t.ai) { t.ai.path = null; t.ai.repathT = Math.random(); }
+      }
     },
 
     shake(amp) {
@@ -281,6 +399,117 @@
       this.msgT = dur;
     },
 
+    /* ---------- pickups & air support ---------- */
+
+    spawnPickup() {
+      const cols = this.cells.length, rows = this.cells[0].length;
+      for (let tries = 0; tries < 30; tries++) {
+        const cx = (Math.random() * cols) | 0, cy = (Math.random() * rows) | 0;
+        const pos = this.cellCenter(cx, cy);
+        if (Math.hypot(pos.x - this.flags[0].baseX, pos.y - this.flags[0].baseY) < 150) continue;
+        if (Math.hypot(pos.x - this.flags[1].baseX, pos.y - this.flags[1].baseY) < 150) continue;
+        if (this.river && Math.abs(pos.y - this.river.y) < 75) continue;
+        if (this.hedgehogs.some(h => Math.hypot(h.x - pos.x, h.y - pos.y) < 32)) continue;
+        this.pickups.push({ type: (Math.random() * 3) | 0, sub: (Math.random() * 3) | 0, x: pos.x, y: pos.y });
+        return;
+      }
+    },
+
+    applyPickup(pk) {
+      const p = this.player;
+      sfx.pickup();
+      if (pk.type === 0) {
+        p.autoTargetT = 10;
+        p.lockT = 0;
+        this.showMsg('AUTO-TARGET ONLINE (10s)', 2.2);
+      } else if (pk.type === 1) {
+        const durations = [3, 4, 5];
+        const names = ['STEEL', 'COMPOSITE', 'REACTIVE'];
+        p.armorItem = { name: names[pk.sub], duration: durations[pk.sub], remaining: -1 };
+        this.showMsg(`${names[pk.sub]} ARMOR — ${durations[pk.sub]}s ONCE HIT`, 2.4);
+      } else {
+        const names = ['BOMBS', 'NAPALM', 'STRAFING RUN'];
+        this.launchAirSupport(pk.sub);
+        this.showMsg(`AIR SUPPORT INBOUND — ${names[pk.sub]}`, 2.4);
+      }
+    },
+
+    launchAirSupport(sub) {
+      const enemies = this.tanks.filter(t => !t.isPlayer && t.alive);
+      let ty = enemies.length
+        ? enemies.reduce((s, t) => s + t.y, 0) / enemies.length
+        : this.worldH / 2;
+      ty = Math.max(60, Math.min(this.worldH - 60, ty));
+      this.strikes.push({ type: sub, x: -140, y: ty, vx: 520, dropT: 0.1, done: false });
+      sfx.shell();
+    },
+
+    strafeHit(x, y) {
+      this.spawnSpark(x, y);
+      for (const t of this.tanks) {
+        if (t.isPlayer || !t.alive) continue;
+        if (Math.hypot(t.x - x, t.y - y) < 20) t.damage(6, this, this.player);
+      }
+    },
+
+    updateSupport(dt) {
+      for (const s of this.strikes) {
+        s.x += s.vx * dt;
+        if (s.x > -40 && s.x < this.worldW + 40) {
+          s.dropT -= dt;
+          if (s.dropT <= 0) {
+            if (s.type === 0) {
+              s.dropT = 0.4;
+              this.bombs.push({ x: s.x, y: s.y + (Math.random() * 40 - 20), fuse: 0.5, done: false });
+            } else if (s.type === 1) {
+              s.dropT = 0.16;
+              this.fires.push({ x: s.x, y: s.y + (Math.random() * 50 - 25), r: 22 + Math.random() * 10, life: 6 });
+            } else {
+              s.dropT = 0.05;
+              this.strafeHit(s.x + Math.random() * 20, s.y + (Math.random() * 60 - 30));
+              if (Math.random() < 0.4) sfx.mg();
+            }
+          }
+        }
+        if (s.x > this.worldW + 160) s.done = true;
+      }
+      this.strikes = this.strikes.filter(s => !s.done);
+
+      for (const b of this.bombs) {
+        b.fuse -= dt;
+        if (b.fuse <= 0) {
+          b.done = true;
+          this.spawnExplosion(b.x, b.y, 50, '#ff8c42');
+          sfx.boomBig();
+          this.shake(6);
+          for (const t of this.tanks) {
+            if (t.isPlayer || !t.alive) continue;
+            const d = Math.hypot(t.x - b.x, t.y - b.y);
+            if (d < 90) t.damage(55 * clamp(1 - d / 110, 0.3, 1), this, this.player);
+          }
+          for (const bw of [...this.breakWalls]) {
+            if (b.x > bw.x - 28 && b.x < bw.x + bw.w + 28 &&
+                b.y > bw.y - 28 && b.y < bw.y + bw.h + 28) {
+              bw.hits = 1;
+              this.damageBreakWall(bw);
+            }
+          }
+        }
+      }
+      this.bombs = this.bombs.filter(b => !b.done);
+
+      for (const f of this.fires) {
+        f.life -= dt;
+        for (const t of this.tanks) {
+          if (t.isPlayer || !t.alive) continue;
+          if (Math.hypot(t.x - f.x, t.y - f.y) < f.r + t.radius * 0.6) {
+            t.damage(16 * dt, this, this.player);
+          }
+        }
+      }
+      this.fires = this.fires.filter(f => f.life > 0);
+    },
+
     /* ---------- level setup ---------- */
 
     startLevel(levelIdx) {
@@ -289,14 +518,127 @@
       this.theme = THEMES[levelIdx % THEMES.length];
       const cols = cfg.cols, rows = cfg.rows;
       this.cells = Maze.generate(cols, rows);
-      this.walls = Maze.buildWallRects(this.cells, CELL, WALL_T);
       this.worldW = cols * CELL;
       this.worldH = rows * CELL;
+
+      // --- river across the middle (terrains that have one), crossable
+      // only at bridges and one tunnel ---
+      this.river = null;
+      this.riverRects = [];
+      if (this.theme.river && rows >= 9) {
+        const ry = Math.floor(rows / 2);
+        const b1 = 1 + ((Math.random() * (cols / 2 - 2)) | 0);
+        const b2 = Math.floor(cols / 2) + 1 + ((Math.random() * (cols / 2 - 3)) | 0);
+        let tCol = Math.floor((b1 + b2) / 2);
+        if (tCol === b1 || tCol === b2) tCol = Math.min(cols - 2, tCol + 1);
+        const crossings = [b1, b2, tCol];
+        for (let x = 0; x < cols; x++) {
+          const open = crossings.includes(x);
+          this.cells[x][ry - 1].walls[2] = !open;
+          this.cells[x][ry].walls[0] = !open;
+        }
+        this.river = { y: ry * CELL, ry, bridges: [b1, b2], tunnelCol: tCol, h: 56 };
+        this.ensureConnected();
+        const half = this.river.h / 2;
+        const gaps = crossings
+          .map(cx => ({ a: cx * CELL + CELL / 2 - 34, b: cx * CELL + CELL / 2 + 34 }))
+          .sort((u, v) => u.a - v.a);
+        let cur = 0;
+        for (const g of gaps) {
+          if (g.a > cur) this.riverRects.push({ x: cur, y: this.river.y - half, w: g.a - cur, h: this.river.h });
+          cur = Math.max(cur, g.b);
+        }
+        if (cur < this.worldW) this.riverRects.push({ x: cur, y: this.river.y - half, w: this.worldW - cur, h: this.river.h });
+      }
+
+      this.walls = Maze.buildWallRects(this.cells, CELL, WALL_T);
+
+      // --- some interior walls are weakened: shells bring them down ---
+      this.breakWalls = [];
+      const riverBand = this.river ? { a: this.river.y - 40, b: this.river.y + 40 } : null;
+      this.walls = this.walls.filter(w => {
+        const interior = w.x > 0 && w.y > 0 && w.x + w.w < this.worldW && w.y + w.h < this.worldH;
+        const inRiver = riverBand && w.y < riverBand.b && w.y + w.h > riverBand.a;
+        if (interior && !inRiver && Math.random() < 0.14) {
+          const hits = 1 + ((Math.random() * 3) | 0); // 1-3 shell hits
+          this.breakWalls.push({ x: w.x, y: w.y, w: w.w, h: w.h, hits, maxHits: hits });
+          return false;
+        }
+        return true;
+      });
+
       this.shells = [];
       this.bullets = [];
       this.mines = [];
       this.particles = [];
       this.tanks = [];
+      this.pickups = [];
+      this.pickupT = 6;
+      this.strikes = [];
+      this.bombs = [];
+      this.fires = [];
+
+      // --- obstacle layout (kept away from bases and river crossings) ---
+      const protectedCells = new Set();
+      const protect = (cx, cy) => {
+        for (let dx = -1; dx <= 1; dx++)
+          for (let dy = -1; dy <= 1; dy++) protectedCells.add((cx + dx) + ',' + (cy + dy));
+      };
+      protect(0, rows - 1);
+      protect(cols - 1, 0);
+      if (this.river) {
+        for (const x of [...this.river.bridges, this.river.tunnelCol]) {
+          protectedCells.add(x + ',' + (this.river.ry - 1));
+          protectedCells.add(x + ',' + this.river.ry);
+        }
+      }
+      const freeCells = [];
+      for (let x = 0; x < cols; x++)
+        for (let y = 0; y < rows; y++)
+          if (!protectedCells.has(x + ',' + y)) freeCells.push({ x, y });
+      const take = () => freeCells.length ? freeCells.splice((Math.random() * freeCells.length) | 0, 1)[0] : null;
+      const area = cols * rows / 100;
+
+      this.mud = [];
+      for (let i = 0; i < Math.round(4 + area * 1.5); i++) {
+        const c2 = take();
+        if (c2) this.mud.push({ x: c2.x * CELL + CELL / 2, y: c2.y * CELL + CELL / 2, r: 33 + Math.random() * 10 });
+      }
+      this.wires = [];
+      for (let i = 0; i < Math.round(3 + area); i++) {
+        const c2 = take();
+        if (c2) this.wires.push({
+          x: c2.x * CELL + 14, y: c2.y * CELL + 14, w: CELL - 28, h: CELL - 28,
+          density: Math.random() < 0.35 ? 0.8 : 0.35, // dense wire traps tanks
+        });
+      }
+      this.hedgehogs = [];
+      for (let i = 0; i < Math.round(4 + area); i++) {
+        const c2 = take();
+        if (c2) this.hedgehogs.push({
+          x: c2.x * CELL + CELL / 2 + (Math.random() * 24 - 12),
+          y: c2.y * CELL + CELL / 2 + (Math.random() * 24 - 12),
+          r: 13,
+        });
+      }
+
+      // --- covered tunnel sections: under the river + through corridors ---
+      this.tunnels = [];
+      if (this.river) {
+        const tx = this.river.tunnelCol * CELL + CELL / 2;
+        this.tunnels.push({ x: tx - 34, y: this.river.y - CELL * 0.9, w: 68, h: CELL * 1.8 });
+      }
+      for (let i = 0; i < 30 && this.tunnels.length < (this.river ? 3 : 2); i++) {
+        const c2 = take();
+        if (!c2) break;
+        if (c2.x + 1 < cols && !this.cells[c2.x][c2.y].walls[1] && !protectedCells.has((c2.x + 1) + ',' + c2.y)) {
+          this.tunnels.push({ x: c2.x * CELL + 8, y: c2.y * CELL + CELL / 2 - 30, w: CELL * 2 - 16, h: 60 });
+        } else if (c2.y + 1 < rows && !this.cells[c2.x][c2.y].walls[2] && !protectedCells.has(c2.x + ',' + (c2.y + 1))) {
+          this.tunnels.push({ x: c2.x * CELL + CELL / 2 - 30, y: c2.y * CELL + 8, w: 60, h: CELL * 2 - 16 });
+        }
+      }
+
+      this.rebuildSolids();
 
       // Bases: player bottom-left, enemy top-right.
       const pBase = this.cellCenter(0, rows - 1);
@@ -361,6 +703,73 @@
         g.beginPath(); g.moveTo(0, y); g.lineTo(c.width, y); g.stroke();
       }
 
+      // river + bridges
+      if (this.river) {
+        const half = this.river.h / 2;
+        g.fillStyle = '#3a6ea5';
+        g.fillRect(0, this.river.y - half, c.width, this.river.h);
+        g.fillStyle = 'rgba(255,255,255,.18)';
+        for (let i = 0; i < c.width / 26; i++) {
+          g.fillRect(Math.random() * c.width, this.river.y - half + 6 + Math.random() * (this.river.h - 14), 14, 2);
+        }
+        g.strokeStyle = '#2c567f';
+        g.lineWidth = 3;
+        g.strokeRect(-4, this.river.y - half, c.width + 8, this.river.h);
+        for (const bx of this.river.bridges) {
+          const cx = bx * CELL + CELL / 2;
+          g.fillStyle = '#8a6f4d';
+          g.fillRect(cx - 32, this.river.y - half - 7, 64, this.river.h + 14);
+          g.strokeStyle = '#5e4a31';
+          g.lineWidth = 2;
+          for (let py = this.river.y - half - 2; py < this.river.y + half + 7; py += 8) {
+            g.beginPath();
+            g.moveTo(cx - 30, py);
+            g.lineTo(cx + 30, py);
+            g.stroke();
+          }
+          g.strokeRect(cx - 32, this.river.y - half - 7, 64, this.river.h + 14);
+        }
+      }
+
+      // mud patches
+      for (const m of this.mud) {
+        g.fillStyle = '#5b4a2e';
+        g.beginPath();
+        g.ellipse(m.x, m.y, m.r, m.r * 0.8, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#6b583a';
+        for (let i = 0; i < 6; i++) {
+          g.beginPath();
+          g.arc(m.x + (Math.random() * 2 - 1) * m.r * 0.5,
+                m.y + (Math.random() * 2 - 1) * m.r * 0.4,
+                4 + Math.random() * 5, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+
+      // barbed wire (denser sections have more strands)
+      for (const w of this.wires) {
+        const strands = w.density >= 0.6 ? 7 : 4;
+        g.strokeStyle = w.density >= 0.6 ? '#737c84' : '#8d959c';
+        g.lineWidth = 1.5;
+        for (let i = 0; i < strands; i++) {
+          const yy = w.y + (i + 0.5) * w.h / strands;
+          g.beginPath();
+          g.moveTo(w.x, yy);
+          g.lineTo(w.x + w.w, yy);
+          g.stroke();
+          for (let xx = w.x + 6; xx < w.x + w.w; xx += 12) {
+            g.beginPath();
+            g.moveTo(xx - 3, yy - 3); g.lineTo(xx + 3, yy + 3);
+            g.moveTo(xx + 3, yy - 3); g.lineTo(xx - 3, yy + 3);
+            g.stroke();
+          }
+        }
+        g.fillStyle = '#55402a';
+        g.fillRect(w.x - 2, w.y - 2, 4, w.h + 4);
+        g.fillRect(w.x + w.w - 2, w.y - 2, 4, w.h + 4);
+      }
+
       // base pads
       for (const f of this.flags) {
         g.fillStyle = f.team === 0 ? 'rgba(110, 224, 138, .25)' : 'rgba(255, 122, 107, .25)';
@@ -393,8 +802,22 @@
       const s = Math.min(sx, sy);
       g.fillStyle = 'rgba(12,18,24,.9)';
       g.fillRect(0, 0, c.width, c.height);
+      if (this.river) {
+        const half = this.river.h / 2;
+        g.fillStyle = '#3a6ea5';
+        g.fillRect(0, (this.river.y - half) * s, this.worldW * s, Math.max(2, this.river.h * s));
+        g.fillStyle = '#8a6f4d';
+        for (const bx of [...this.river.bridges, this.river.tunnelCol]) {
+          g.fillRect((bx * CELL + CELL / 2 - 34) * s, (this.river.y - half) * s,
+                     Math.max(2, 68 * s), Math.max(2, this.river.h * s));
+        }
+      }
       g.fillStyle = '#5d7488';
       for (const r of this.walls) {
+        g.fillRect(r.x * s, r.y * s, Math.max(1, r.w * s), Math.max(1, r.h * s));
+      }
+      g.fillStyle = '#85765a';
+      for (const r of this.breakWalls) {
         g.fillRect(r.x * s, r.y * s, Math.max(1, r.w * s), Math.max(1, r.h * s));
       }
       this.miniCanvas = c;
@@ -432,6 +855,7 @@
         this.stateT = 1.6;
       } else {
         this.showMsg(`ENEMY CAPTURED YOUR FLAG (${this.enemyScore}/${ENEMY_CAPTURES_TO_LOSE})`, 2.6);
+        this.resetRound();
       }
     },
 
@@ -489,18 +913,54 @@
 
       // --- player controls ---
       if (this.player.alive && this.state === 'playing') {
+        const p = this.player;
         const inp = Input.read();
         if (inp.joyActive) {
-          this.player.desiredAngle = inp.joyAngle;
-          this.player.desiredThrottle = inp.joyMag;
+          p.desiredAngle = inp.joyAngle;
+          p.desiredThrottle = inp.joyMag;
         } else {
-          this.player.desiredAngle = null;
-          this.player.throttle = inp.forward;
-          this.player.steer = inp.turn;
+          p.desiredAngle = null;
+          p.throttle = inp.forward;
+          p.steer = inp.turn;
         }
-        if (inp.fireShell) this.player.fireShell(this);
-        if (inp.fireMG) this.player.fireMG(this);
-        if (Input.consumeMine()) this.player.dropMine(this);
+
+        // auto-target pickup: turret locks an enemy for 2s at a time
+        if (p.autoTargetT > 0) {
+          p.autoTargetT -= dt;
+          p.lockT -= dt;
+          const lt = p.lockTarget;
+          const valid = lt && lt.alive && p.lockT > 0 &&
+            Math.hypot(lt.x - p.x, lt.y - p.y) < 520 &&
+            hasLOS(this.losBlockers, p.x, p.y, lt.x, lt.y);
+          if (!valid) {
+            p.lockTarget = null;
+            let best = null, bd = 520;
+            for (const t of this.tanks) {
+              if (t.isPlayer || !t.alive) continue;
+              const d = Math.hypot(t.x - p.x, t.y - p.y);
+              if (d < bd && hasLOS(this.losBlockers, p.x, p.y, t.x, t.y)) { bd = d; best = t; }
+            }
+            if (best) { p.lockTarget = best; p.lockT = 2; }
+          }
+          if (p.lockTarget) {
+            p.turretAngle = Math.atan2(p.lockTarget.y - p.y, p.lockTarget.x - p.x);
+          }
+        } else {
+          p.lockTarget = null;
+        }
+
+        if (inp.fireShell) p.fireShell(this);
+        if (inp.fireMG) p.fireMG(this);
+        if (Input.consumeMine()) p.dropMine(this);
+
+        // collect special items
+        for (const pk of this.pickups) {
+          if (Math.hypot(p.x - pk.x, p.y - pk.y) < 28) {
+            pk.dead = true;
+            this.applyPickup(pk);
+          }
+        }
+        this.pickups = this.pickups.filter(pk => !pk.dead);
       } else {
         Input.consumeMine();
         this.player.throttle = 0;
@@ -522,6 +982,17 @@
       this.shells = this.shells.filter(s => !s.dead);
       this.bullets = this.bullets.filter(b => !b.dead);
       this.mines = this.mines.filter(m => !m.dead);
+
+      this.updateSupport(dt);
+
+      // fresh pickups appear over time (max 3 on the field)
+      if (this.state === 'playing') {
+        this.pickupT -= dt;
+        if (this.pickupT <= 0) {
+          this.pickupT = 9 + Math.random() * 7;
+          if (this.pickups.length < 3) this.spawnPickup();
+        }
+      }
 
       for (const p of this.particles) {
         p.life -= dt;
@@ -597,7 +1068,7 @@
         ai.losT = 0.25;
         ai.hasLOS = player.alive &&
           Math.hypot(player.x - t.x, player.y - t.y) < 460 &&
-          hasLOS(this.walls, t.x, t.y, player.x, player.y);
+          hasLOS(this.losBlockers, t.x, t.y, player.x, player.y);
       }
 
       // pick destination
@@ -747,6 +1218,16 @@
       else if (this.flags[0].state === 'carried') status = '⚠ The enemy has your flag!';
       else if (this.flags[0].state === 'dropped') status = 'Your flag is on the ground — touch it to return it.';
       el.flagstatus.textContent = status;
+
+      const power = [];
+      if (p.autoTargetT > 0) power.push(`◎ AUTO-TARGET ${Math.ceil(p.autoTargetT)}s`);
+      if (p.armorItem) {
+        power.push(p.armorItem.remaining < 0
+          ? `⛨ ${p.armorItem.name} ARMOR armed`
+          : `⛨ ${p.armorItem.name} ARMOR ${p.armorItem.remaining.toFixed(1)}s`);
+      }
+      if (this.strikes.length) power.push('✈ AIR SUPPORT ON STATION');
+      el.powerstatus.textContent = power.join('  ·  ');
     },
 
     /* ---------- render ---------- */
@@ -769,6 +1250,27 @@
 
       ctx.drawImage(this.floorCanvas, 0, 0);
 
+      // breakable walls (drawn live so cracks can grow and walls vanish)
+      for (const bw of this.breakWalls) {
+        ctx.fillStyle = this.theme.wall;
+        ctx.fillRect(bw.x, bw.y, bw.w, bw.h);
+        ctx.strokeStyle = this.theme.wallEdge;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bw.x + 1, bw.y + 1, bw.w - 2, bw.h - 2);
+        ctx.strokeStyle = 'rgba(18, 14, 8, .7)';
+        ctx.lineWidth = 1.5;
+        const cracks = 2 + (bw.maxHits - bw.hits) * 3;
+        for (let i = 0; i < cracks; i++) {
+          const px = bw.x + 5 + ((i * 53) % Math.max(8, bw.w - 14));
+          const py = bw.y + 3 + ((i * 31) % Math.max(6, bw.h - 14));
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + 7, py + 5);
+          ctx.lineTo(px + 3, py + 10);
+          ctx.stroke();
+        }
+      }
+
       for (const m of this.mines) m.draw(ctx, this.time);
 
       for (const f of this.flags) {
@@ -778,9 +1280,111 @@
         }
       }
 
+      // special items
+      for (const pk of this.pickups) {
+        const bob = Math.sin(this.time * 3 + pk.x) * 2;
+        ctx.save();
+        ctx.translate(pk.x, pk.y + bob);
+        ctx.fillStyle = 'rgba(15, 22, 30, .85)';
+        ctx.strokeStyle = ['#ff6b5e', '#5fd9e8', '#ffd34d'][pk.type];
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        if (pk.type === 0) { // auto-target crosshair
+          ctx.beginPath();
+          ctx.arc(0, 0, 6, 0, Math.PI * 2);
+          ctx.moveTo(-10, 0); ctx.lineTo(-3, 0);
+          ctx.moveTo(3, 0); ctx.lineTo(10, 0);
+          ctx.moveTo(0, -10); ctx.lineTo(0, -3);
+          ctx.moveTo(0, 3); ctx.lineTo(0, 10);
+          ctx.stroke();
+        } else if (pk.type === 1) { // armor shield
+          ctx.beginPath();
+          ctx.moveTo(0, -8); ctx.lineTo(7, -4); ctx.lineTo(7, 2);
+          ctx.quadraticCurveTo(7, 8, 0, 10);
+          ctx.quadraticCurveTo(-7, 8, -7, 2);
+          ctx.lineTo(-7, -4);
+          ctx.closePath();
+          ctx.stroke();
+        } else { // air support plane
+          ctx.beginPath();
+          ctx.moveTo(0, -9); ctx.lineTo(2.5, -2); ctx.lineTo(10, 1); ctx.lineTo(2.5, 3);
+          ctx.lineTo(2, 8); ctx.lineTo(0, 6); ctx.lineTo(-2, 8); ctx.lineTo(-2.5, 3);
+          ctx.lineTo(-10, 1); ctx.lineTo(-2.5, -2);
+          ctx.closePath();
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Czech hedgehogs
+      for (const h of this.hedgehogs) {
+        ctx.save();
+        ctx.translate(h.x, h.y);
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#3c4449';
+        ctx.lineWidth = 5;
+        for (const a of [0.4, 1.45, 2.5]) {
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 13, Math.sin(a) * 13);
+          ctx.lineTo(-Math.cos(a) * 13, -Math.sin(a) * 13);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = '#6d777e';
+        ctx.lineWidth = 2;
+        for (const a of [0.4, 1.45, 2.5]) {
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 11, Math.sin(a) * 11);
+          ctx.lineTo(-Math.cos(a) * 11, -Math.sin(a) * 11);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
       for (const t of this.tanks) t.draw(ctx);
+
+      // auto-target lock brackets on the locked enemy
+      const lock = this.player.lockTarget;
+      if (lock && lock.alive) {
+        ctx.strokeStyle = '#ff5b4d';
+        ctx.lineWidth = 2;
+        const r = 26, g2 = 9;
+        for (const [sx2, sy2] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          ctx.beginPath();
+          ctx.moveTo(lock.x + sx2 * r, lock.y + sy2 * (r - g2));
+          ctx.lineTo(lock.x + sx2 * r, lock.y + sy2 * r);
+          ctx.lineTo(lock.x + sx2 * (r - g2), lock.y + sy2 * r);
+          ctx.stroke();
+        }
+      }
+
       for (const s of this.shells) s.draw(ctx);
       for (const b of this.bullets) b.draw(ctx);
+
+      // napalm fire
+      for (const f of this.fires) {
+        const flick = 0.75 + Math.sin(this.time * 18 + f.x) * 0.25;
+        ctx.globalAlpha = Math.min(1, f.life) * 0.85;
+        ctx.fillStyle = '#ff7a1a';
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r * flick, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffd34d';
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r * 0.45 * flick, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // falling bombs
+      for (const b of this.bombs) {
+        ctx.fillStyle = '#23272b';
+        ctx.beginPath();
+        ctx.ellipse(b.x, b.y, 5, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       for (const p of this.particles) {
         ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
@@ -790,6 +1394,53 @@
         ctx.fill();
       }
       ctx.globalAlpha = 1;
+
+      // tunnel roofs cover whatever drives beneath them
+      for (const t of this.tunnels) {
+        ctx.fillStyle = 'rgba(26, 30, 37, .93)';
+        ctx.fillRect(t.x, t.y, t.w, t.h);
+        ctx.strokeStyle = '#10141a';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(t.x, t.y, t.w, t.h);
+        ctx.strokeStyle = 'rgba(92, 102, 114, .5)';
+        ctx.lineWidth = 2;
+        if (t.w > t.h) {
+          for (let xx = t.x + 12; xx < t.x + t.w - 4; xx += 18) {
+            ctx.beginPath();
+            ctx.moveTo(xx, t.y + 3);
+            ctx.lineTo(xx, t.y + t.h - 3);
+            ctx.stroke();
+          }
+        } else {
+          for (let yy = t.y + 12; yy < t.y + t.h - 4; yy += 18) {
+            ctx.beginPath();
+            ctx.moveTo(t.x + 3, yy);
+            ctx.lineTo(t.x + t.w - 3, yy);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // support planes fly above everything
+      for (const s of this.strikes) {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.fillStyle = 'rgba(0, 0, 0, .25)';
+        ctx.beginPath();
+        ctx.ellipse(10, 30, 26, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#9aa6ae';
+        ctx.fillRect(-6, -26, 11, 52);          // wings
+        ctx.fillRect(-24, -9, 6, 18);           // tail
+        ctx.beginPath();
+        ctx.roundRect(-24, -5, 50, 10, 5);      // fuselage
+        ctx.fill();
+        ctx.fillStyle = '#6d777e';
+        ctx.beginPath();
+        ctx.arc(14, 0, 4, 0, Math.PI * 2);      // canopy
+        ctx.fill();
+        ctx.restore();
+      }
       ctx.restore();
 
       this.renderMinimap();
@@ -800,6 +1451,10 @@
       mctx.clearRect(0, 0, minimap.width, minimap.height);
       mctx.drawImage(this.miniCanvas, 0, 0);
       const s = this.miniScale;
+      for (const pk of this.pickups) {
+        mctx.fillStyle = '#ffd34d';
+        mctx.fillRect(pk.x * s - 1.5, pk.y * s - 1.5, 3, 3);
+      }
       for (const f of this.flags) {
         mctx.fillStyle = f.team === 0 ? '#6fe08a' : '#ff7a6b';
         mctx.fillRect(f.x * s - 2.5, f.y * s - 2.5, 5, 5);

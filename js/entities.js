@@ -90,6 +90,11 @@ class Tank {
     this.carryingFlag = null;   // flag object or null
     this.ai = null;             // attached by game for enemies
     this.trackPhase = 0;
+    this.turretAngle = angle;   // turret can aim independently (auto-target)
+    this.armorItem = null;      // pickup armor: { name, duration, remaining }
+    this.autoTargetT = 0;       // auto-target pickup time left
+    this.lockTarget = null;
+    this.lockT = 0;
   }
 
   maxMines() { return 4; }
@@ -107,6 +112,12 @@ class Tank {
     this.ramCd = Math.max(0, this.ramCd - dt);
     this.invulnT = Math.max(0, this.invulnT - dt);
     this.lastHitT += dt;
+
+    // pickup armor: countdown starts at the first hit taken while armored
+    if (this.armorItem && this.armorItem.remaining >= 0) {
+      this.armorItem.remaining -= dt;
+      if (this.armorItem.remaining <= 0) this.armorItem = null;
+    }
 
     // Repairs accumulate while not taking hits.
     if (this.lastHitT > REGEN_DELAY && this.hp < this.maxHp) {
@@ -130,25 +141,48 @@ class Tank {
     if (this.speed < targetSpeed) this.speed = Math.min(targetSpeed, this.speed + this.accel * dt);
     else this.speed = Math.max(targetSpeed, this.speed - this.accel * dt);
 
-    const nx = this.x + Math.cos(this.angle) * this.speed * dt;
-    const ny = this.y + Math.sin(this.angle) * this.speed * dt;
-    this.x = nx; this.y = ny;
-    this.trackPhase += Math.abs(this.speed) * dt * 0.15;
+    // mud and barbed wire slow the tank down (dense wire nearly stops it)
+    const terrain = game.terrainFactor ? game.terrainFactor(this) : 1;
+    this.x += Math.cos(this.angle) * this.speed * terrain * dt;
+    this.y += Math.sin(this.angle) * this.speed * terrain * dt;
+    this.trackPhase += Math.abs(this.speed * terrain) * dt * 0.15;
 
-    // --- wall collision (slide) ---
-    for (const w of game.walls) {
+    // --- wall / river / rubble collision (slide) ---
+    const solids = game.tankSolids || game.walls;
+    for (const w of solids) {
       const hit = circleRectHit(this.x, this.y, this.radius, w);
       if (hit) {
         this.x += hit.nx * hit.depth;
         this.y += hit.ny * hit.depth;
       }
     }
+    // Czech hedgehogs: solid to tanks, projectiles pass between the beams
+    if (game.hedgehogs) {
+      for (const h of game.hedgehogs) {
+        const dx = this.x - h.x, dy = this.y - h.y;
+        const d = Math.hypot(dx, dy), minD = h.r + this.radius;
+        if (d < minD && d > 0.001) {
+          this.x += dx / d * (minD - d);
+          this.y += dy / d * (minD - d);
+        }
+      }
+    }
     this.x = clamp(this.x, this.radius, game.worldW - this.radius);
     this.y = clamp(this.y, this.radius, game.worldH - this.radius);
+
+    // turret relaxes back to the hull heading unless a lock is steering it
+    if (!this.lockTarget) {
+      const td = angleDiff(this.angle, this.turretAngle);
+      this.turretAngle += clamp(td, -6 * dt, 6 * dt);
+    }
   }
 
   damage(amount, game, source) {
     if (!this.alive || this.invulnT > 0) return;
+    if (this.armorItem) {
+      if (this.armorItem.remaining < 0) this.armorItem.remaining = this.armorItem.duration;
+      amount *= 0.3;
+    }
     this.hp -= amount;
     this.lastHitT = 0;
     if (this.hp <= 0) {
@@ -170,16 +204,20 @@ class Tank {
     this.hp = this.maxHp;
     this.x = this.spawnX; this.y = this.spawnY;
     this.angle = this.spawnAngle;
+    this.turretAngle = this.spawnAngle;
     this.speed = 0;
     this.invulnT = 2.2;
     this.lastHitT = 999;
     this.cdShell = 0.5; this.cdMG = 0.5; this.cdMine = 1;
+    this.autoTargetT = 0;
+    this.lockTarget = null;
+    this.armorItem = null;
   }
 
   muzzle(dist) {
     return {
-      x: this.x + Math.cos(this.angle) * dist,
-      y: this.y + Math.sin(this.angle) * dist,
+      x: this.x + Math.cos(this.turretAngle) * dist,
+      y: this.y + Math.sin(this.turretAngle) * dist,
     };
   }
 
@@ -187,7 +225,7 @@ class Tank {
     if (!this.alive || this.cdShell > 0) return false;
     this.cdShell = 1.0;
     const m = this.muzzle(26);
-    game.shells.push(new Shell(m.x, m.y, this.angle, this));
+    game.shells.push(new Shell(m.x, m.y, this.turretAngle, this));
     game.sfx.shell();
     game.addKick(this, -14);
     return true;
@@ -198,7 +236,7 @@ class Tank {
     this.cdMG = 0.11;
     const m = this.muzzle(26);
     const spread = (Math.random() - 0.5) * 0.10;
-    game.bullets.push(new Bullet(m.x, m.y, this.angle + spread, this));
+    game.bullets.push(new Bullet(m.x, m.y, this.turretAngle + spread, this));
     game.sfx.mg();
     return true;
   }
@@ -228,6 +266,7 @@ class Tank {
       ctx.globalAlpha = 0.45;
     }
 
+    ctx.save();
     ctx.rotate(this.angle);
     // treads
     ctx.fillStyle = '#1d242b';
@@ -248,15 +287,30 @@ class Tank {
     ctx.roundRect(-15, -10, 30, 20, 4);
     ctx.fill();
     ctx.stroke();
-    // barrel
+    ctx.restore();
+    // turret + barrel rotate independently of the hull
+    ctx.save();
+    ctx.rotate(this.turretAngle);
     ctx.fillStyle = dark;
     ctx.fillRect(6, -3, 22, 6);
-    // turret
     ctx.fillStyle = turret;
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(0, 0, 8, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
+    // pickup armor shimmer
+    if (this.armorItem) {
+      const counting = this.armorItem.remaining >= 0;
+      ctx.strokeStyle = counting && Math.floor(this.armorItem.remaining * 6) % 2 === 0
+        ? 'rgba(95, 217, 232, .45)' : 'rgba(95, 217, 232, .95)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 23, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
 
     // carried flag streams behind the tank
@@ -321,6 +375,14 @@ class Shell {
     for (const w of game.walls) {
       if (circleRectHit(this.x, this.y, this.r, w)) { this.explode(game); return; }
     }
+    // breakable walls take shell hits and eventually crumble
+    for (const bw of game.breakWalls || []) {
+      if (circleRectHit(this.x, this.y, this.r, bw)) {
+        game.damageBreakWall(bw);
+        this.explode(game);
+        return;
+      }
+    }
     for (const t of game.tanks) {
       if (!t.alive || t.team === this.team) continue;
       const d = Math.hypot(t.x - this.x, t.y - this.y);
@@ -379,6 +441,13 @@ class Bullet {
 
     for (const w of game.walls) {
       if (pointInRect(this.x, this.y, w)) {
+        this.dead = true;
+        game.spawnSpark(this.x, this.y);
+        return;
+      }
+    }
+    for (const bw of game.breakWalls || []) {
+      if (pointInRect(this.x, this.y, bw)) {
         this.dead = true;
         game.spawnSpark(this.x, this.y);
         return;

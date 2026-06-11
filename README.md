@@ -21,9 +21,33 @@ No build step, no dependencies — plain HTML/CSS/JS on a canvas.
 - Capture the **red flag** from the top-right base and return it to your
   **green pad** (bottom-left) to score and advance to the next terrain.
 - The enemy team sends a tank after *your* flag — three enemy captures and
-  you lose.
+  you lose. After every capture the round resets: all tanks (enemies
+  included) respawn at their bases and the field is cleared.
 - Destroyed tanks respawn at their base; a dropped flag returns home after
   15 seconds if nobody touches it.
+
+### Obstacles & terrain
+
+- **Mud** bogs tanks down to half speed.
+- **Barbed wire** drags at your tracks; *dense* wire all but traps a tank —
+  bullets and shells fly straight over it.
+- **Czech hedgehogs** (steel tank barricades) stop tanks dead, but
+  projectiles pass between the beams.
+- **Weakened walls** crack and crumble after 1–3 shell hits, opening new
+  routes through the maze.
+- **Rivers** (Town and Forest) cut the map in half — cross by **bridge**,
+  or take the covered **tunnel** underneath. More tunnel sections roof over
+  parts of the maze; nobody can see in from outside.
+
+### Special items (drive over the crates)
+
+1. **Auto-target** `◎` — the turret locks onto a visible enemy and tracks
+   it for 2 seconds at a time, re-acquiring targets for 10 seconds.
+2. **Armor** `⛨` — Steel, Composite or Reactive plating takes 70% off
+   incoming damage; the 3, 4 or 5 second timer only starts counting from
+   the first hit you take.
+3. **Air support** `✈` — a plane sweeps the enemy's side of the map with
+   bombs, napalm, or a heavy machine-gun strafing run.
 
 ### Weapons & damage (strongest → weakest)
 
