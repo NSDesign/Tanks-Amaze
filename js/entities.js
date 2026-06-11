@@ -340,19 +340,22 @@ class Tank {
   }
 }
 
-/* Custom flag artwork: when assets/enemy-flag.svgz (or .svg) exists it is
-   loaded and rasterized into FlagAssets.enemy (see game.js) and replaces
-   the vector enemy flag; otherwise the built-in pennant is drawn. */
-const FlagAssets = { enemy: null, enemyAspect: 0.8 };
+/* Custom flag artwork per team: assets/allied-flag.svgz (team 0) and
+   assets/enemy-flag.svgz (team 1) are loaded and rasterized by game.js
+   into FlagAssets; teams without artwork get the built-in pennant. */
+const FlagAssets = {
+  art: { 0: null, 1: null },
+  aspect: { 0: 0.8, 1: 0.8 },
+};
 
 function drawFlag(ctx, x, y, color, scale = 1, team) {
-  if (team === 1 && FlagAssets.enemy) {
-    const img = FlagAssets.enemy;
+  const art = FlagAssets.art[team];
+  if (art) {
     const h = 46 * scale;
-    const w = h * FlagAssets.enemyAspect;
-    // the artwork stands on its own round base: place the base's center
-    // (~27% from the left, ~92% down the image) on the ground point
-    ctx.drawImage(img, x - w * 0.27, y + 10 * scale - h * 0.92, w, h);
+    const w = h * FlagAssets.aspect[team];
+    // both artworks stand on their own round base: place that base's
+    // center (~27% from the left, ~92% down the image) on the ground point
+    ctx.drawImage(art, x - w * 0.27, y + 10 * scale - h * 0.92, w, h);
     return;
   }
   ctx.save();

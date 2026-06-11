@@ -1741,12 +1741,12 @@
 
   /* ============================ Main loop ============================ */
 
-  // Custom enemy flag artwork: prefer the compressed assets/enemy-flag.svgz
+  // Custom flag artwork for both teams: prefer the compressed .svgz
   // (inflated in the browser, since static hosts rarely set the right
-  // headers for .svgz), fall back to enemy-flag.svg, then to the built-in
-  // pennant. The SVG is rasterized once to an offscreen canvas so drawing
-  // it every frame stays cheap.
-  (async () => {
+  // headers for .svgz), fall back to .svg, then to the built-in pennant.
+  // Each SVG is rasterized once to an offscreen canvas so drawing it
+  // every frame stays cheap.
+  async function loadFlagArt(team, base) {
     const loadImg = (src) => new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
@@ -1761,11 +1761,11 @@
       raster.height = 192; // plenty for ~50px on-screen at high dpr
       raster.width = Math.round(192 * aspect);
       raster.getContext('2d').drawImage(img, 0, 0, raster.width, raster.height);
-      FlagAssets.enemyAspect = aspect;
-      FlagAssets.enemy = raster;
+      FlagAssets.aspect[team] = aspect;
+      FlagAssets.art[team] = raster;
     };
     try {
-      const res = await fetch('assets/enemy-flag.svgz');
+      const res = await fetch(base + '.svgz');
       if (!res.ok) throw new Error('missing svgz');
       const buf = new Uint8Array(await res.arrayBuffer());
       let text;
@@ -1779,12 +1779,14 @@
       await fromText(text);
     } catch (e) {
       try {
-        const res = await fetch('assets/enemy-flag.svg');
+        const res = await fetch(base + '.svg');
         if (!res.ok) throw new Error('missing svg');
         await fromText(await res.text());
       } catch (e2) { /* keep the vector pennant */ }
     }
-  })();
+  }
+  loadFlagArt(0, 'assets/allied-flag');
+  loadFlagArt(1, 'assets/enemy-flag');
 
   window.__game = game; // debug/testing handle
 
