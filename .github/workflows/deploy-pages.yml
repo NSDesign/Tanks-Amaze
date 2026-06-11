@@ -25,6 +25,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Stamp asset URLs for cache busting
+        # Browsers and the Pages CDN cache css/js aggressively; versioning
+        # the URLs guarantees every deploy is picked up on the next load.
+        run: |
+          V="${GITHUB_SHA::8}"
+          sed -i -E "s|(href=\"css/style\.css)|\1?v=${V}|; s|(src=\"js/[a-z]+\.js)|\1?v=${V}|g" index.html
+          grep -E "\?v=${V}" index.html
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
