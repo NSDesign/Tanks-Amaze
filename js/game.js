@@ -190,8 +190,18 @@
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    viewW = window.innerWidth;
-    viewH = window.innerHeight;
+    // The playfield sits below the HUD bar and above the touch deck so
+    // neither ever covers the tanks or the maze. A canvas is a replaced
+    // element and won't stretch on its own, so size it explicitly.
+    const topbar = document.getElementById('topbar');
+    const deck = document.getElementById('touch');
+    const topH = topbar ? topbar.offsetHeight : 0;
+    const deckH = document.body.classList.contains('has-touch') && deck ? deck.offsetHeight : 0;
+    viewW = Math.max(1, window.innerWidth);
+    viewH = Math.max(1, window.innerHeight - topH - deckH);
+    canvas.style.top = topH + 'px';
+    canvas.style.width = viewW + 'px';
+    canvas.style.height = viewH + 'px';
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
     // zoom out a touch on small screens so corridors stay readable
@@ -200,6 +210,8 @@
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', resize);
   resize();
+  // re-measure once fonts/safe-area settle after first layout
+  window.addEventListener('load', resize);
 
   /* ============================ Game ============================ */
 

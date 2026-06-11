@@ -27,11 +27,19 @@ html, body {
   touch-action: none;
 }
 
+/* The play area is inset between the top HUD bar and (on touch devices)
+   the bottom control deck, so HUD and controls never cover the action.
+   --deck-h is 0 on desktop; JS sets the canvas top to the bar height. */
+body { --deck-h: 0px; }
+body.has-touch { --deck-h: calc(176px + env(safe-area-inset-bottom)); }
+@media (max-height: 500px) {
+  body.has-touch { --deck-h: calc(100px + env(safe-area-inset-bottom)); }
+}
+
 #canvas {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 0;
+  top: 0;   /* JS positions and sizes the playfield between bar and deck */
   display: block;
   touch-action: none;
 }
@@ -54,7 +62,8 @@ html, body {
   align-items: center;
   gap: 14px;
   padding: calc(8px + env(safe-area-inset-top)) 12px 8px 12px;
-  background: linear-gradient(to bottom, rgba(5,8,12,.82), rgba(5,8,12,0));
+  background: rgba(6, 10, 15, .94);
+  border-bottom: 1px solid #22303d;
 }
 
 .hud-block { display: flex; flex-direction: column; gap: 3px; }
@@ -90,9 +99,16 @@ html, body {
 #score .foe { color: #ff7a6b; }
 #levelname { font-size: 11px; color: #9fb4c7; letter-spacing: 1px; }
 
-#flag-block { flex: 1; align-items: flex-start; }
+#flag-block { flex: 1; align-items: flex-start; min-width: 0; }
+#flagstatus, #powerstatus {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 #flagstatus { font-size: 12px; color: #ffd34d; font-weight: 600; min-height: 16px; }
-#powerstatus { font-size: 11px; color: #5fd9e8; font-weight: 600; letter-spacing: .5px; }
+#powerstatus { font-size: 11px; color: #5fd9e8; font-weight: 600; letter-spacing: .5px; min-height: 14px; }
 
 #minimap {
   border: 1px solid #3b4f63;
@@ -118,17 +134,29 @@ html, body {
 }
 #msg.show { opacity: 1; }
 
-/* ---------- Touch controls ---------- */
+/* ---------- Touch controls (dedicated bottom deck) ---------- */
 
 #touch { display: none; }
-body.has-touch #touch { display: block; }
+body.has-touch #touch {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--deck-h);
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: linear-gradient(to top, rgba(6, 9, 13, .97), rgba(11, 16, 22, .92));
+  border-top: 1px solid #2b3b4a;
+  pointer-events: none;
+}
 
 #stickZone {
   position: absolute;
   left: 0;
+  top: 0;
   bottom: 0;
   width: 50%;
-  height: 55%;
   pointer-events: auto;
   touch-action: none;
 }
@@ -139,13 +167,14 @@ body.has-touch #touch { display: block; }
   height: 124px;
   border-radius: 50%;
   border: 2px solid rgba(160, 200, 235, .35);
-  background: rgba(40, 60, 80, .25);
-  left: 36px;
-  bottom: calc(36px + env(safe-area-inset-bottom));
+  background: rgba(40, 60, 80, .35);
+  left: 30px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 #stickBase.active {
   border-color: rgba(190, 225, 250, .65);
-  background: rgba(50, 75, 100, .35);
+  background: rgba(50, 75, 100, .45);
 }
 
 #stickThumb {
@@ -165,9 +194,10 @@ body.has-touch #touch { display: block; }
 #buttons {
   position: absolute;
   right: calc(16px + env(safe-area-inset-right));
-  bottom: calc(28px + env(safe-area-inset-bottom));
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 14px;
   pointer-events: auto;
   touch-action: none;
@@ -200,6 +230,16 @@ body.has-touch #touch { display: block; }
 .tbtn.pressed { background: rgba(160, 200, 235, .45); }
 .tbtn.big.pressed { background: rgba(220, 90, 70, .65); }
 .tbtn.cooldown { opacity: .4; }
+
+/* Short (landscape) screens: slimmer deck, smaller controls */
+@media (max-height: 500px) {
+  #stickBase { width: 84px; height: 84px; left: 20px; }
+  #stickThumb { width: 38px; height: 38px; }
+  .tbtn { width: 48px; height: 48px; font-size: 10px; }
+  .tbtn em { font-size: 8px; }
+  .tbtn.big { width: 62px; height: 62px; font-size: 12px; }
+  #buttons { gap: 10px; }
+}
 
 /* ---------- Overlay ---------- */
 
@@ -263,4 +303,17 @@ body.has-touch #touch { display: block; }
   #healthwrap { width: 100px; }
   #minimap { width: 105px; height: 77px; }
   #score { font-size: 16px; }
+}
+
+/* Short (landscape phone) screens: compress the HUD bar so the playfield
+   keeps a usable height between bar and deck. */
+@media (max-height: 500px) {
+  #topbar { padding-top: 4px; padding-bottom: 4px; gap: 10px; }
+  #minimap { width: 84px; height: 56px; }
+  #healthwrap { width: 90px; height: 11px; }
+  #score { font-size: 14px; }
+  #levelname { font-size: 10px; }
+  #flagstatus { font-size: 11px; min-height: 13px; }
+  #powerstatus { font-size: 10px; min-height: 12px; }
+  .hud-label { font-size: 8px; letter-spacing: 1.5px; }
 }

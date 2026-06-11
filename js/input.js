@@ -85,23 +85,31 @@ const Input = (() => {
   const stickZone = document.getElementById('stickZone');
   const stickBase = document.getElementById('stickBase');
   const stickThumb = document.getElementById('stickThumb');
-  const STICK_RANGE = 46;  // px of thumb travel
   const GRAB_RADIUS = 110; // how far from the stick a touch may start and still grab it
 
   let stickTouchId = null;
   let stickCenter = { x: 0, y: 0 };
 
+  // Base/thumb sizes change with screen size (media queries), so measure live.
+  function stickMetrics() {
+    const b = stickBase.clientWidth || 124;
+    const t = stickThumb.clientWidth || 56;
+    return { center: (b - t) / 2, range: b / 2 - 14 };
+  }
+
   function setThumb(dx, dy) {
-    stickThumb.style.left = (32 + dx) + 'px';
-    stickThumb.style.top = (32 + dy) + 'px';
+    const m = stickMetrics();
+    stickThumb.style.left = (m.center + dx) + 'px';
+    stickThumb.style.top = (m.center + dy) + 'px';
   }
 
   function applyDeflection(clientX, clientY) {
+    const range = stickMetrics().range;
     let dx = clientX - stickCenter.x;
     let dy = clientY - stickCenter.y;
     const d = Math.hypot(dx, dy);
-    const mag = Math.min(1, d / STICK_RANGE);
-    if (d > STICK_RANGE) { dx = dx / d * STICK_RANGE; dy = dy / d * STICK_RANGE; }
+    const mag = Math.min(1, d / range);
+    if (d > range) { dx = dx / d * range; dy = dy / d * range; }
     setThumb(dx, dy);
     if (mag > 0.12) {
       state.joyActive = true;
@@ -175,12 +183,16 @@ const Input = (() => {
   bindButton('btnMG', () => { touchMG = true; }, () => { touchMG = false; });
   bindButton('btnMine', () => { state.dropMine = true; });
 
-  // Reveal touch controls the moment any touch happens.
-  window.addEventListener('touchstart', () => {
+  // Reveal touch controls the moment any touch happens. The control deck
+  // changes the playfield size, so the game must re-measure its canvas.
+  function enableTouchUI() {
+    if (document.body.classList.contains('has-touch')) return;
     document.body.classList.add('has-touch');
-  }, { once: true, passive: true });
+    window.dispatchEvent(new Event('resize'));
+  }
+  window.addEventListener('touchstart', enableTouchUI, { once: true, passive: true });
   if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-    document.body.classList.add('has-touch');
+    enableTouchUI();
   }
 
   /* ---------- polling API used by the game loop ---------- */
