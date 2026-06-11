@@ -198,47 +198,115 @@ body.has-touch #touch {
   transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   pointer-events: auto;
   touch-action: none;
 }
 
+#btnCol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .tbtn {
-  width: 66px;
-  height: 66px;
+  position: relative;
   border-radius: 50%;
   background: rgba(40, 60, 80, .45);
   border: 2px solid rgba(160, 200, 235, .45);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   color: #dce8f2;
-  font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 1px;
   touch-action: none;
+  overflow: hidden; /* clips the reload fill to the circle */
 }
-.tbtn em { font-size: 9px; font-style: normal; color: #9fb4c7; margin-top: 2px; }
+.tbtn.small { width: 58px; height: 58px; }
 .tbtn.big {
-  width: 88px;
-  height: 88px;
-  font-size: 16px;
+  width: 97px;
+  height: 97px;
   background: rgba(120, 50, 40, .5);
   border-color: rgba(255, 150, 130, .55);
 }
 .tbtn.pressed { background: rgba(160, 200, 235, .45); }
 .tbtn.big.pressed { background: rgba(220, 90, 70, .65); }
-.tbtn.cooldown { opacity: .4; }
+.tbtn.cooldown { opacity: .45; }
+
+.icon.mg { width: 26px; height: 26px; fill: #dce8f2; }
+
+/* FIRE button: outline shell always visible; the solid shell is revealed
+   bottom-to-top by #shellFill (a rectangle clipped by the round button)
+   as the gun reloads. */
+.icon.shell { width: 30px; height: 50px; }
+.icon.shell.outline {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  fill: none;
+  stroke: rgba(255, 185, 168, .8);
+  stroke-width: 1.6;
+}
+#shellFill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
+  overflow: hidden;
+  background: rgba(255, 130, 100, .18);
+  pointer-events: none;
+}
+#shellFill .icon.shell.solid {
+  position: absolute;
+  left: 50%;
+  bottom: 23.5px;  /* (97 - 50) / 2 keeps it aligned with the outline */
+  transform: translateX(-50%);
+  fill: #ffb39e;
+}
+
+/* mine button: little mines instead of a number; spent ones stay as outlines */
+#minePips {
+  display: flex;
+  flex-wrap: wrap;
+  width: 36px;
+  gap: 5px;
+  justify-content: center;
+  align-items: center;
+}
+.pip {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #dce8f2;
+  box-shadow:
+    0 -6px 0 -4.4px #dce8f2,
+    0 6px 0 -4.4px #dce8f2,
+    -6px 0 0 -4.4px #dce8f2,
+    6px 0 0 -4.4px #dce8f2;
+}
+.pip.used {
+  background: transparent;
+  border: 1.5px solid rgba(220, 232, 242, .4);
+  box-shadow: none;
+  width: 8px;
+  height: 8px;
+}
 
 /* Short (landscape) screens: slimmer deck, smaller controls */
 @media (max-height: 500px) {
   #stickBase { width: 84px; height: 84px; left: 20px; }
   #stickThumb { width: 38px; height: 38px; }
-  .tbtn { width: 48px; height: 48px; font-size: 10px; }
-  .tbtn em { font-size: 8px; }
-  .tbtn.big { width: 62px; height: 62px; font-size: 12px; }
+  .tbtn.small { width: 42px; height: 42px; }
+  .tbtn.big { width: 72px; height: 72px; }
+  .icon.mg { width: 19px; height: 19px; }
+  .icon.shell { width: 22px; height: 37px; }
+  #shellFill .icon.shell.solid { bottom: 17.5px; }
+  #btnCol { gap: 6px; }
   #buttons { gap: 10px; }
+  #minePips { width: 28px; gap: 3px; }
+  .pip { width: 8px; height: 8px; box-shadow: 0 -4.5px 0 -3.2px #dce8f2, 0 4.5px 0 -3.2px #dce8f2, -4.5px 0 0 -3.2px #dce8f2, 4.5px 0 0 -3.2px #dce8f2; }
+  .pip.used { width: 6px; height: 6px; }
 }
 
 /* ---------- Overlay ---------- */
@@ -284,6 +352,33 @@ body.has-touch #touch {
   font-family: inherit;
 }
 .touch-hint { color: #7e93a6; }
+
+#difficulty { margin-bottom: 18px; }
+.diff-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: #7e93a6;
+  margin-bottom: 8px;
+}
+#diff-btns { display: flex; justify-content: center; gap: 10px; }
+.diff {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 8px 18px;
+  color: #9fb4c7;
+  background: #16222e;
+  border: 1px solid #3b4f63;
+  border-radius: 8px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.diff.sel {
+  color: #07120a;
+  background: linear-gradient(to bottom, #8ec9e8, #5b9cc4);
+  border-color: #8ec9e8;
+}
 
 #overlay-btn {
   font-size: 18px;

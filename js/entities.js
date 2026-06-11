@@ -97,7 +97,7 @@ class Tank {
     this.lockT = 0;
   }
 
-  maxMines() { return 4; }
+  maxMines() { return 4 + (this.mineBonus || 0); }
 
   update(dt, game) {
     if (!this.alive) {
@@ -223,7 +223,7 @@ class Tank {
 
   fireShell(game) {
     if (!this.alive || this.cdShell > 0) return false;
-    this.cdShell = 1.0;
+    this.cdShell = 1.0 * (this.shellCdMult || 1);
     const m = this.muzzle(26);
     game.shells.push(new Shell(m.x, m.y, this.turretAngle, this));
     game.sfx.shell();

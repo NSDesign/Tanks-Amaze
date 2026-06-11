@@ -80,10 +80,17 @@
 
   /* ============================ Themes ============================ */
 
+  /* Three terrains, each with its own obstacle profile:
+     braid   – how many maze loops (Desert plays open, City is tight)
+     breakP  – chance a wall is a crumbling structure
+     mudN/wireN/hedgeN – obstacle density multipliers
+     river   – has a river with bridges and an under-river tunnel */
   const THEMES = [
     {
       name: 'City', floor: '#41464c', speck: '#4d5359',
       wall: '#67737e', wallEdge: '#2c343c',
+      braid: 0.1, breakP: 0.2, mudN: 0.5, wireN: 1.4, hedgeN: 1.7, river: false,
+      mudColors: ['#46413a', '#544d44'], // oil & rubble pits
       detail(ctx, r) { // windows on buildings
         ctx.fillStyle = 'rgba(255, 224, 130, .55)';
         const horizontal = r.w > r.h;
@@ -96,20 +103,10 @@
       },
     },
     {
-      name: 'Town', floor: '#8d7c5f', speck: '#9c8b6c',
-      wall: '#a05a40', wallEdge: '#5e3322', river: true,
-      detail(ctx, r) { // roof ridges
-        ctx.strokeStyle = 'rgba(255,255,255,.18)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        if (r.w > r.h) { ctx.moveTo(r.x + 4, r.y + r.h / 2); ctx.lineTo(r.x + r.w - 4, r.y + r.h / 2); }
-        else { ctx.moveTo(r.x + r.w / 2, r.y + 4); ctx.lineTo(r.x + r.w / 2, r.y + r.h - 4); }
-        ctx.stroke();
-      },
-    },
-    {
       name: 'Forest', floor: '#3e6339', speck: '#476f41',
-      wall: '#27462a', wallEdge: '#16291a', river: true,
+      wall: '#27462a', wallEdge: '#16291a',
+      braid: 0.16, breakP: 0.07, mudN: 1.7, wireN: 1.0, hedgeN: 0.5, river: true,
+      mudColors: ['#5b4a2e', '#6b583a'], // bog
       detail(ctx, r) { // tree canopies along the wall
         const horizontal = r.w > r.h;
         const len = horizontal ? r.w : r.h;
@@ -127,7 +124,9 @@
     {
       name: 'Desert', floor: '#c5a263', speck: '#b69253',
       wall: '#9c7c45', wallEdge: '#6b522a',
-      detail(ctx, r) { // cracked rock
+      braid: 0.3, breakP: 0.15, mudN: 1.2, wireN: 0.5, hedgeN: 0.8, river: false,
+      mudColors: ['#d6b97e', '#c5a668'], // soft sand sinks the tracks
+      detail(ctx, r) { // cracked adobe
         ctx.strokeStyle = 'rgba(60,42,18,.35)';
         ctx.lineWidth = 1.5;
         const horizontal = r.w > r.h;
@@ -140,15 +139,6 @@
         }
       },
     },
-    {
-      name: 'Tundra', floor: '#c3d2da', speck: '#b1c2cc',
-      wall: '#7395ab', wallEdge: '#46647a',
-      detail(ctx, r) { // ice sheen
-        ctx.fillStyle = 'rgba(255,255,255,.25)';
-        if (r.w > r.h) ctx.fillRect(r.x + 3, r.y + 3, r.w - 6, 3);
-        else ctx.fillRect(r.x + 3, r.y + 3, 3, r.h - 6);
-      },
-    },
   ];
 
   const LEVELS = [
@@ -157,11 +147,19 @@
     { cols: 15, rows: 11, enemies: 3 },
     { cols: 17, rows: 11, enemies: 3 },
     { cols: 17, rows: 13, enemies: 4 },
+    { cols: 19, rows: 13, enemies: 4 },
   ];
 
   const CELL = 100;
   const WALL_T = 14;
-  const ENEMY_CAPTURES_TO_LOSE = 3;
+  // difficulty: [easy, normal, hard]
+  const DIFF = {
+    names: ['EASY', 'NORMAL', 'HARD'],
+    enemyDelta: [-1, 0, 1],
+    enemySpeed: [0.85, 1, 1.15],
+    enemyReload: [1.6, 1.1, 0.85],
+    capturesToLose: [5, 3, 2],
+  };
 
   /* ============================ DOM ============================ */
 
@@ -176,10 +174,11 @@
     flagstatus: document.getElementById('flagstatus'),
     powerstatus: document.getElementById('powerstatus'),
     msg: document.getElementById('msg'),
-    mineCount: document.getElementById('mineCount'),
     btnShell: document.getElementById('btnShell'),
     btnMG: document.getElementById('btnMG'),
     btnMine: document.getElementById('btnMine'),
+    shellFill: document.getElementById('shellFill'),
+    minePips: document.getElementById('minePips'),
     overlay: document.getElementById('overlay'),
     overlayTitle: document.getElementById('overlay-title'),
     overlayText: document.getElementById('overlay-text'),
@@ -422,7 +421,7 @@
         if (Math.hypot(pos.x - this.flags[1].baseX, pos.y - this.flags[1].baseY) < 150) continue;
         if (this.river && Math.abs(pos.y - this.river.y) < 75) continue;
         if (this.hedgehogs.some(h => Math.hypot(h.x - pos.x, h.y - pos.y) < 32)) continue;
-        this.pickups.push({ type: (Math.random() * 3) | 0, sub: (Math.random() * 3) | 0, x: pos.x, y: pos.y });
+        this.pickups.push({ type: (Math.random() * 4) | 0, sub: (Math.random() * 3) | 0, x: pos.x, y: pos.y });
         return;
       }
     },
@@ -439,10 +438,13 @@
         const names = ['STEEL', 'COMPOSITE', 'REACTIVE'];
         p.armorItem = { name: names[pk.sub], duration: durations[pk.sub], remaining: -1 };
         this.showMsg(`${names[pk.sub]} ARMOR — ${durations[pk.sub]}s ONCE HIT`, 2.4);
-      } else {
+      } else if (pk.type === 2) {
         const names = ['BOMBS', 'NAPALM', 'STRAFING RUN'];
         this.launchAirSupport(pk.sub);
         this.showMsg(`AIR SUPPORT INBOUND — ${names[pk.sub]}`, 2.4);
+      } else {
+        p.mineBonus = Math.min(4, (p.mineBonus || 0) + 2);
+        this.showMsg(`EXTRA MINES — CAPACITY ${p.maxMines()}`, 2.2);
       }
     },
 
@@ -529,7 +531,7 @@
       this.level = levelIdx;
       this.theme = THEMES[levelIdx % THEMES.length];
       const cols = cfg.cols, rows = cfg.rows;
-      this.cells = Maze.generate(cols, rows);
+      this.cells = Maze.generate(cols, rows, this.theme.braid);
       this.worldW = cols * CELL;
       this.worldH = rows * CELL;
 
@@ -571,7 +573,7 @@
       this.walls = this.walls.filter(w => {
         const interior = w.x > 0 && w.y > 0 && w.x + w.w < this.worldW && w.y + w.h < this.worldH;
         const inRiver = riverBand && w.y < riverBand.b && w.y + w.h > riverBand.a;
-        if (interior && !inRiver && Math.random() < 0.14) {
+        if (interior && !inRiver && Math.random() < this.theme.breakP) {
           const hits = 1 + ((Math.random() * 3) | 0); // 1-3 shell hits
           this.breakWalls.push({ x: w.x, y: w.y, w: w.w, h: w.h, hits, maxHits: hits });
           return false;
@@ -611,13 +613,14 @@
       const take = () => freeCells.length ? freeCells.splice((Math.random() * freeCells.length) | 0, 1)[0] : null;
       const area = cols * rows / 100;
 
+      const th = this.theme;
       this.mud = [];
-      for (let i = 0; i < Math.round(4 + area * 1.5); i++) {
+      for (let i = 0; i < Math.round((4 + area * 1.5) * th.mudN); i++) {
         const c2 = take();
         if (c2) this.mud.push({ x: c2.x * CELL + CELL / 2, y: c2.y * CELL + CELL / 2, r: 33 + Math.random() * 10 });
       }
       this.wires = [];
-      for (let i = 0; i < Math.round(3 + area); i++) {
+      for (let i = 0; i < Math.round((3 + area) * th.wireN); i++) {
         const c2 = take();
         if (c2) this.wires.push({
           x: c2.x * CELL + 14, y: c2.y * CELL + 14, w: CELL - 28, h: CELL - 28,
@@ -625,7 +628,7 @@
         });
       }
       this.hedgehogs = [];
-      for (let i = 0; i < Math.round(4 + area); i++) {
+      for (let i = 0; i < Math.round((4 + area) * th.hedgeN); i++) {
         const c2 = take();
         if (c2) this.hedgehogs.push({
           x: c2.x * CELL + CELL / 2 + (Math.random() * 24 - 12),
@@ -634,20 +637,12 @@
         });
       }
 
-      // --- covered tunnel sections: under the river + through corridors ---
+      // The only covered section is the tunnel under the river — corridor
+      // roofs looked like floating black slabs and have been removed.
       this.tunnels = [];
       if (this.river) {
         const tx = this.river.tunnelCol * CELL + CELL / 2;
         this.tunnels.push({ x: tx - 34, y: this.river.y - CELL * 0.9, w: 68, h: CELL * 1.8 });
-      }
-      for (let i = 0; i < 30 && this.tunnels.length < (this.river ? 3 : 2); i++) {
-        const c2 = take();
-        if (!c2) break;
-        if (c2.x + 1 < cols && !this.cells[c2.x][c2.y].walls[1] && !protectedCells.has((c2.x + 1) + ',' + c2.y)) {
-          this.tunnels.push({ x: c2.x * CELL + 8, y: c2.y * CELL + CELL / 2 - 30, w: CELL * 2 - 16, h: 60 });
-        } else if (c2.y + 1 < rows && !this.cells[c2.x][c2.y].walls[2] && !protectedCells.has(c2.x + ',' + (c2.y + 1))) {
-          this.tunnels.push({ x: c2.x * CELL + CELL / 2 - 30, y: c2.y * CELL + 8, w: 60, h: CELL * 2 - 16 });
-        }
       }
 
       this.rebuildSolids();
@@ -663,7 +658,8 @@
       this.player = new Tank(0, pBase.x, pBase.y, -Math.PI / 2, true);
       this.tanks.push(this.player);
 
-      const enemyCount = cfg.enemies + Math.min(this.cycle, 2);
+      const d = this.difficulty;
+      const enemyCount = Math.max(1, cfg.enemies + Math.min(this.cycle, 2) + DIFF.enemyDelta[d]);
       const spawnCells = [
         [cols - 1, 0], [cols - 2, 0], [cols - 1, 1], [cols - 2, 1],
         [cols - 3, 0], [cols - 1, 2],
@@ -672,8 +668,9 @@
         const sc = spawnCells[i % spawnCells.length];
         const p = this.cellCenter(sc[0], sc[1]);
         const t = new Tank(1, p.x, p.y, Math.PI / 2, false);
-        // faster AI tanks on later cycles
-        t.maxSpeed *= 1 + this.cycle * 0.08;
+        // difficulty and later cycles tune AI speed and reload time
+        t.maxSpeed *= DIFF.enemySpeed[d] * (1 + this.cycle * 0.08);
+        t.shellCdMult = DIFF.enemyReload[d];
         t.ai = {
           role: i === 0 ? 'capture' : 'hunter',
           path: null, wpIdx: 0,
@@ -743,13 +740,13 @@
         }
       }
 
-      // mud patches
+      // mud / soft sand patches (colors come from the terrain theme)
       for (const m of this.mud) {
-        g.fillStyle = '#5b4a2e';
+        g.fillStyle = th.mudColors[0];
         g.beginPath();
         g.ellipse(m.x, m.y, m.r, m.r * 0.8, 0, 0, Math.PI * 2);
         g.fill();
-        g.fillStyle = '#6b583a';
+        g.fillStyle = th.mudColors[1];
         for (let i = 0; i < 6; i++) {
           g.beginPath();
           g.arc(m.x + (Math.random() * 2 - 1) * m.r * 0.5,
@@ -838,7 +835,12 @@
 
     /* ---------- flow ---------- */
 
-    start() {
+    difficulty: 1,
+    capturesToLose: DIFF.capturesToLose[1],
+
+    start(difficulty) {
+      if (difficulty !== undefined) this.difficulty = difficulty;
+      this.capturesToLose = DIFF.capturesToLose[this.difficulty];
       this.playerScore = 0;
       this.enemyScore = 0;
       this.cycle = 0;
@@ -861,12 +863,12 @@
       this.enemyScore++;
       sfx.lose();
       this.shake(6);
-      if (this.enemyScore >= ENEMY_CAPTURES_TO_LOSE) {
+      if (this.enemyScore >= this.capturesToLose) {
         this.showMsg('YOUR FLAG IS GONE', 3);
         this.state = 'gameover';
         this.stateT = 1.6;
       } else {
-        this.showMsg(`ENEMY CAPTURED YOUR FLAG (${this.enemyScore}/${ENEMY_CAPTURES_TO_LOSE})`, 2.6);
+        this.showMsg(`ENEMY CAPTURED YOUR FLAG (${this.enemyScore}/${this.capturesToLose})`, 2.6);
         this.resetRound();
       }
     },
@@ -906,8 +908,9 @@
             this.victoryShown = true;
             this.state = 'victory';
             showOverlay('VICTORY!',
-              `All ${LEVELS.length} terrains conquered — final score ${this.playerScore}–${this.enemyScore}.<br>` +
-              'The war continues at higher difficulty if you keep rolling.',
+              `All ${LEVELS.length} battles across City, Forest and Desert won on ` +
+              `${DIFF.names[this.difficulty]} — final score ${this.playerScore}–${this.enemyScore}.<br>` +
+              'The war continues at higher intensity if you keep rolling.',
               'KEEP ROLLING');
             return;
           }
@@ -917,7 +920,7 @@
       } else if (this.state === 'gameover') {
         this.stateT -= dt;
         if (this.stateT <= 0 && el.overlay.classList.contains('hidden')) {
-          showOverlay('DEFEAT', `The enemy captured your flag ${ENEMY_CAPTURES_TO_LOSE} times.<br>Final score ${this.playerScore}–${this.enemyScore}.`, 'TRY AGAIN');
+          showOverlay('DEFEAT', `The enemy captured your flag ${this.capturesToLose} times on ${DIFF.names[this.difficulty]}.<br>Final score ${this.playerScore}–${this.enemyScore}.`, 'TRY AGAIN');
         }
       }
 
@@ -1219,11 +1222,23 @@
 
       el.score.innerHTML = `<b class="you">${this.playerScore}</b> — <b class="foe">${this.enemyScore}</b>`;
 
-      const myMines = this.mines.filter(m => m.owner === p && !m.dead).length;
-      el.mineCount.textContent = '×' + (p.maxMines() - myMines);
+      // FIRE button: rising fill reveals the solid shell as the gun reloads
+      const reload = Math.max(0, Math.min(1, 1 - p.cdShell / (p.shellCdMult || 1)));
+      el.shellFill.style.height = (reload * 100) + '%';
 
-      el.btnShell.classList.toggle('cooldown', p.cdShell > 0.15);
-      el.btnMine.classList.toggle('cooldown', p.cdMine > 0.15 || myMines >= p.maxMines());
+      // mine pips: deployed mines stay behind as outlines
+      const total = p.maxMines();
+      const deployed = this.mines.filter(m => m.owner === p && !m.dead).length;
+      while (el.minePips.childElementCount < total) {
+        const pip = document.createElement('div');
+        pip.className = 'pip';
+        el.minePips.appendChild(pip);
+      }
+      while (el.minePips.childElementCount > total) el.minePips.lastChild.remove();
+      [...el.minePips.children].forEach((pip, i) => {
+        pip.classList.toggle('used', i >= total - deployed);
+      });
+      el.btnMine.classList.toggle('cooldown', p.cdMine > 0.15 || deployed >= total);
 
       let status = '';
       if (p.carryingFlag) status = '🚩 You have the enemy flag — return to your base!';
@@ -1292,13 +1307,20 @@
         }
       }
 
-      // special items
+      // special items, hovering with a soft shadow beneath
       for (const pk of this.pickups) {
-        const bob = Math.sin(this.time * 3 + pk.x) * 2;
+        const bob = Math.sin(this.time * 3 + pk.x) * 3;
+        const lift = (bob + 3) / 6; // 0 = low point, 1 = high point
         ctx.save();
-        ctx.translate(pk.x, pk.y + bob);
+        ctx.translate(pk.x, pk.y);
+        // shadow shrinks and fades as the item floats higher
+        ctx.fillStyle = `rgba(0, 0, 0, ${0.3 - lift * 0.12})`;
+        ctx.beginPath();
+        ctx.ellipse(0, 17, 12 - lift * 3, 4.5 - lift * 1.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.translate(0, bob - 4);
         ctx.fillStyle = 'rgba(15, 22, 30, .85)';
-        ctx.strokeStyle = ['#ff6b5e', '#5fd9e8', '#ffd34d'][pk.type];
+        ctx.strokeStyle = ['#ff6b5e', '#5fd9e8', '#ffd34d', '#8ee06b'][pk.type];
         ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.arc(0, 0, 14, 0, Math.PI * 2);
@@ -1320,12 +1342,27 @@
           ctx.lineTo(-7, -4);
           ctx.closePath();
           ctx.stroke();
-        } else { // air support plane
+        } else if (pk.type === 2) { // air support plane
           ctx.beginPath();
           ctx.moveTo(0, -9); ctx.lineTo(2.5, -2); ctx.lineTo(10, 1); ctx.lineTo(2.5, 3);
           ctx.lineTo(2, 8); ctx.lineTo(0, 6); ctx.lineTo(-2, 8); ctx.lineTo(-2.5, 3);
           ctx.lineTo(-10, 1); ctx.lineTo(-2.5, -2);
           ctx.closePath();
+          ctx.stroke();
+        } else { // extra mines: spiked mine with a plus
+          ctx.beginPath();
+          ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+          ctx.stroke();
+          for (let i = 0; i < 4; i++) {
+            const a = i * Math.PI / 2 + Math.PI / 4;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * 5.5, Math.sin(a) * 5.5);
+            ctx.lineTo(Math.cos(a) * 9, Math.sin(a) * 9);
+            ctx.stroke();
+          }
+          ctx.beginPath();
+          ctx.moveTo(-2.5, 0); ctx.lineTo(2.5, 0);
+          ctx.moveTo(0, -2.5); ctx.lineTo(0, 2.5);
           ctx.stroke();
         }
         ctx.restore();
@@ -1407,30 +1444,61 @@
       }
       ctx.globalAlpha = 1;
 
-      // tunnel roofs cover whatever drives beneath them
+      // the under-river tunnel: a stone tube with arched portals at each
+      // end so it reads as a tunnel rather than a floating slab
       for (const t of this.tunnels) {
-        ctx.fillStyle = 'rgba(26, 30, 37, .93)';
-        ctx.fillRect(t.x, t.y, t.w, t.h);
-        ctx.strokeStyle = '#10141a';
+        const vertical = t.h > t.w;
+        // dark portal mouths peeking out past the tube ends
+        ctx.fillStyle = '#0c0f14';
+        ctx.beginPath();
+        if (vertical) {
+          ctx.ellipse(t.x + t.w / 2, t.y + 6, t.w / 2 - 4, 9, 0, 0, Math.PI * 2);
+          ctx.ellipse(t.x + t.w / 2, t.y + t.h - 6, t.w / 2 - 4, 9, 0, 0, Math.PI * 2);
+        } else {
+          ctx.ellipse(t.x + 6, t.y + t.h / 2, 9, t.h / 2 - 4, 0, 0, Math.PI * 2);
+          ctx.ellipse(t.x + t.w - 6, t.y + t.h / 2, 9, t.h / 2 - 4, 0, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        // stone tube
+        ctx.fillStyle = 'rgba(74, 82, 96, .96)';
+        ctx.strokeStyle = '#262d38';
         ctx.lineWidth = 3;
-        ctx.strokeRect(t.x, t.y, t.w, t.h);
-        ctx.strokeStyle = 'rgba(92, 102, 114, .5)';
-        ctx.lineWidth = 2;
-        if (t.w > t.h) {
-          for (let xx = t.x + 12; xx < t.x + t.w - 4; xx += 18) {
+        ctx.beginPath();
+        ctx.roundRect(t.x, t.y, t.w, t.h, Math.min(t.w, t.h) / 2 - 4);
+        ctx.fill();
+        ctx.stroke();
+        // arch ribs
+        ctx.strokeStyle = 'rgba(30, 36, 46, .55)';
+        ctx.lineWidth = 2.5;
+        if (vertical) {
+          for (let yy = t.y + 18; yy < t.y + t.h - 12; yy += 17) {
             ctx.beginPath();
-            ctx.moveTo(xx, t.y + 3);
-            ctx.lineTo(xx, t.y + t.h - 3);
+            ctx.moveTo(t.x + 6, yy);
+            ctx.quadraticCurveTo(t.x + t.w / 2, yy - 7, t.x + t.w - 6, yy);
             ctx.stroke();
           }
         } else {
-          for (let yy = t.y + 12; yy < t.y + t.h - 4; yy += 18) {
+          for (let xx = t.x + 18; xx < t.x + t.w - 12; xx += 17) {
             ctx.beginPath();
-            ctx.moveTo(t.x + 3, yy);
-            ctx.lineTo(t.x + t.w - 3, yy);
+            ctx.moveTo(xx, t.y + 6);
+            ctx.quadraticCurveTo(xx - 7, t.y + t.h / 2, xx, t.y + t.h - 6);
             ctx.stroke();
           }
         }
+        // center lane stripe hint
+        ctx.strokeStyle = 'rgba(160, 170, 184, .25)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 10]);
+        ctx.beginPath();
+        if (vertical) {
+          ctx.moveTo(t.x + t.w / 2, t.y + 12);
+          ctx.lineTo(t.x + t.w / 2, t.y + t.h - 12);
+        } else {
+          ctx.moveTo(t.x + 12, t.y + t.h / 2);
+          ctx.lineTo(t.x + t.w - 12, t.y + t.h / 2);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
 
       // support planes fly above everything
@@ -1490,6 +1558,17 @@
     el.overlay.classList.remove('hidden');
   }
 
+  let selectedDiff = 1;
+  document.querySelectorAll('.diff').forEach(btn => {
+    const pick = (e) => {
+      e.preventDefault();
+      selectedDiff = +btn.dataset.d;
+      document.querySelectorAll('.diff').forEach(b => b.classList.toggle('sel', b === btn));
+    };
+    btn.addEventListener('click', pick);
+    btn.addEventListener('touchend', pick, { passive: false });
+  });
+
   function onOverlayButton() {
     sfx.unlock();
     if (game.state === 'victory') {
@@ -1498,7 +1577,7 @@
       el.overlay.classList.add('hidden');
       game.startLevel(game.level + 1);
     } else {
-      game.start();
+      game.start(selectedDiff);
     }
   }
   el.overlayBtn.addEventListener('click', onOverlayButton);

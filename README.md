@@ -1,9 +1,19 @@
 # Tanks Amaze
 
 An aerial-view tank capture-the-flag game. Every level is a procedurally
-generated maze themed as a different terrain — City, Town, Forest, Desert,
-Tundra — full of dead ends and choke points. Steal the enemy flag and haul
-it back to your base pad while AI tanks hunt you and try to capture yours.
+generated maze across three terrains, each with its own character:
+
+- **City** — tight streets, lots of crumbling buildings, dense barricades
+  and barbed wire.
+- **Forest** — a river splits the map (bridges + an under-river tunnel),
+  boggy mud everywhere, few barricades.
+- **Desert** — open, loopy dune mazes, soft sand that slows tracks,
+  cracked adobe walls.
+
+Steal the enemy flag and haul it back to your base pad while AI tanks hunt
+you and try to capture yours. Three difficulties (Easy / Normal / Hard)
+tune enemy numbers, speed, reload time, and how many captures you can
+afford to lose.
 
 **▶ Play it now:** <https://nsdesign.github.io/Tanks-Amaze/>
 
@@ -35,11 +45,10 @@ No build step, no dependencies — plain HTML/CSS/JS on a canvas.
   projectiles pass between the beams.
 - **Weakened walls** crack and crumble after 1–3 shell hits, opening new
   routes through the maze.
-- **Rivers** (Town and Forest) cut the map in half — cross by **bridge**,
-  or take the covered **tunnel** underneath. More tunnel sections roof over
-  parts of the maze; nobody can see in from outside.
+- **Rivers** (Forest) cut the map in half — cross by **bridge**, or take
+  the stone **tunnel** underneath; nobody outside can see you in there.
 
-### Special items (drive over the crates)
+### Special items (drive over the floating crates)
 
 1. **Auto-target** `◎` — the turret locks onto a visible enemy and tracks
    it for 2 seconds at a time, re-acquiring targets for 10 seconds.
@@ -48,6 +57,11 @@ No build step, no dependencies — plain HTML/CSS/JS on a canvas.
    the first hit you take.
 3. **Air support** `✈` — a plane sweeps the enemy's side of the map with
    bombs, napalm, or a heavy machine-gun strafing run.
+4. **Extra mines** `+` — raises your mine capacity by 2 (up to 8).
+
+On mobile the FIRE button shows the reload as a fill rising bottom-to-top
+that re-reveals the shell icon, and the mine button shows your mines as
+little pips — spent ones stay behind as outlines until they detonate.
 
 ### Weapons & damage (strongest → weakest)
 

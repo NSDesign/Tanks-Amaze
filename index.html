@@ -39,9 +39,28 @@
         <div id="stickBase"><div id="stickThumb"></div></div>
       </div>
       <div id="buttons">
-        <div class="tbtn" id="btnMine"><span>MINE</span><em id="mineCount">×4</em></div>
-        <div class="tbtn" id="btnMG"><span>MG</span><em>hold</em></div>
-        <div class="tbtn big" id="btnShell"><span>FIRE</span><em>shell</em></div>
+        <div id="btnCol">
+          <div class="tbtn small" id="btnMG" aria-label="machine gun (hold)">
+            <svg viewBox="0 0 24 24" class="icon mg">
+              <rect x="4.5" y="3" width="4" height="13" rx="2"/>
+              <rect x="10" y="6.5" width="4" height="13" rx="2"/>
+              <rect x="15.5" y="3" width="4" height="13" rx="2"/>
+            </svg>
+          </div>
+          <div class="tbtn small" id="btnMine" aria-label="drop mine">
+            <div id="minePips"></div>
+          </div>
+        </div>
+        <div class="tbtn big" id="btnShell" aria-label="fire shell">
+          <div id="shellFill">
+            <svg viewBox="0 0 24 40" class="icon shell solid">
+              <path d="M12 1 C16 7 17.5 12 17.5 18 L17.5 29 Q17.5 32 15.5 33.4 L15.5 37 L8.5 37 L8.5 33.4 Q6.5 32 6.5 29 L6.5 18 C6.5 12 8 7 12 1 Z"/>
+            </svg>
+          </div>
+          <svg viewBox="0 0 24 40" class="icon shell outline">
+            <path d="M12 1 C16 7 17.5 12 17.5 18 L17.5 29 Q17.5 32 15.5 33.4 L15.5 37 L8.5 37 L8.5 33.4 Q6.5 32 6.5 29 L6.5 18 C6.5 12 8 7 12 1 Z"/>
+          </svg>
+        </div>
       </div>
     </div>
   </div>
@@ -60,6 +79,14 @@
         <div><kbd>W A S D</kbd> / <kbd>&uarr;&darr;&larr;&rarr;</kbd> drive &amp; steer</div>
         <div><kbd>SPACE</kbd> fire shell &nbsp; <kbd>F</kbd> machine gun (hold) &nbsp; <kbd>E</kbd> drop mine</div>
         <div class="touch-hint">On mobile: left thumb = joystick, right thumb = fire buttons</div>
+      </div>
+      <div id="difficulty">
+        <span class="diff-label">DIFFICULTY</span>
+        <div id="diff-btns">
+          <button class="diff" data-d="0">EASY</button>
+          <button class="diff sel" data-d="1">NORMAL</button>
+          <button class="diff" data-d="2">HARD</button>
+        </div>
       </div>
       <button id="overlay-btn">DEPLOY</button>
     </div>
